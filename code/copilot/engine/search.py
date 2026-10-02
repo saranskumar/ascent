@@ -58,7 +58,22 @@ def ddg(query: str, n: int) -> list[Candidate]:
             for r in rows if r.get("image")]
 
 
+KIND_WORDS = {"diagram", "photo", "chart", "illustration", "architecture", "sequence", "picture",
+              "image", "graph"}
+
+
 def wikimedia(query: str, n: int) -> list[Candidate]:
+    # Commons search needs every word to match file titles/descriptions, so drop the "kind" words
+    # the LLM appends, and if that still finds nothing, retry with just the first three words.
+    words = [w for w in query.split() if w.lower() not in KIND_WORDS] or query.split()
+    for q in dict.fromkeys([" ".join(words), " ".join(words[:3])]):
+        res = _wikimedia(q, n)
+        if res:
+            return res
+    return []
+
+
+def _wikimedia(query: str, n: int) -> list[Candidate]:
     p = {"action": "query", "format": "json", "generator": "search", "gsrnamespace": 6,
          "gsrsearch": f"{query} filetype:bitmap|drawing", "gsrlimit": n,
          "prop": "imageinfo", "iiprop": "url|size|mime", "iiurlwidth": 1280}

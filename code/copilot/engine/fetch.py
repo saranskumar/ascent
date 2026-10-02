@@ -128,7 +128,7 @@ async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str
     domains: set[str] = set()
     hashes = list(seen_hashes)
     for c, data in zip(pool, datas):
-        if len(picked) >= want or not data or c.domain in domains:
+        if len(picked) >= want or not data or (c.domain in domains and c.provider != "wikimedia"):
             continue
         res = await asyncio.to_thread(_process, data, kind)
         if not res:
