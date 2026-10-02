@@ -4,7 +4,7 @@ Serves Segment messages on ws://127.0.0.1:8771/transcript (+ GET /transcript/his
 Captures transcription live from either:
 1. Active Meetily Pro app (via Chrome DevTools Protocol on port 9222)
 2. Standalone microphone transcription using faster-whisper
-3. Manual typing fallback
+3. Manual typing fallback or POST /transcript/say HTTP injection
 
 Run:
     python -m transcript.main            # Auto-detects Meetily, falls back to microphone
@@ -33,6 +33,26 @@ from contracts.messages import Segment
 from contracts.stream import StreamServer, run_app
 
 stream = StreamServer("transcript")
+
+T0 = time.monotonic()
+RUN = time.strftime("%H%M%S")   # ids stay unique if this process restarts
+_n = 0
+
+
+async def say(text: str) -> dict:
+    global _n
+    _n += 1
+    now = time.monotonic() - T0
+    return await stream.publish(Segment(id=f"seg-{RUN}-{_n:03d}", text=text.strip(), start=max(0, now - 3),
+                                        end=now, final=True, speaker="host"))
+
+
+async def say_handler(request: web.Request) -> web.Response:
+    text = str((await request.json()).get("text", "")).strip()
+    if not text:
+        return web.json_response({"ok": False, "error": "empty"}, status=400)
+    d = await say(text)
+    return web.json_response({"ok": True, "seq": d["seq"]})
 
 
 async def meetily_cdp_source(cdp_port: int = 9222):
@@ -252,6 +272,7 @@ def main():
 
     app = web.Application()
     stream.attach(app)
+    app.router.add_post("/transcript/say", say_handler)
 
     async def start(_):
         if args.typing:

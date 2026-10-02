@@ -3,7 +3,7 @@
 This is the only thing the three parts share. If you change it, tell the others and update `messages.py`, the samples and the mocks in the same commit.
 
 ```text
- 1. transcript (Hari) ──segments──► 2. engine (Saran) ──suggestions──► 3. GUI (Mahreen)
+ 1. transcript (Hari) ──segments──► 2. engine (Shreevardhan) ──suggestions──► 3. GUI (Mahreen)
     ws :8771/transcript                ws :8772/suggestions   ◄──select / dismiss──
                                        http :8772/images/…
 ```
@@ -23,6 +23,7 @@ Each producer serves its stream at:
 - **`seq`:** every message gets a number that goes up by one. The stream server sets it, so producers don't.
 - **Reconnects:** a client remembers the last `seq` it got and reconnects with `?since=<seq>`. It then receives everything it missed, in order, followed by live messages.
 - **First connection:** without `since`, a client gets the last 60 s of transcript (or 120 s of suggestions), then live messages.
+- **Producer restarted:** if `since` is higher than anything the server has sent, the server must have restarted. It treats the request as a first connection. Clients should accept `seq` going backwards after a reconnect.
 - **History endpoint:** for debugging (open it in a browser) and for pulling the whole history at once. It's not a polling fallback.
 
 In Python, don't implement any of this yourself. Use `contracts/stream.py`: `StreamServer` to serve a stream, `Subscriber` to read one.
@@ -66,4 +67,4 @@ The engine uses these to rank images and to stop suggesting the same topic again
 ## Samples
 
 - `samples/transcript.jsonl`: a scripted ~100 s talk (outage → circuit breaker → backoff → an off-topic keyboard). `mock_transcript` replays it.
-- `samples/suggestions.jsonl`: what a good engine *should* produce for that talk, with timings. `mock_engine` replays it, and Saran can use it as a rough target.
+- `samples/suggestions.jsonl`: what a good engine *should* produce for that talk, with timings. `mock_engine` replays it, and Shreevardhan can use it as a rough target.
