@@ -19,6 +19,7 @@ if ($MockEngine) {
     Start-Part "2 engine" "engine.main"
 }
 
-# TODO(Mahreen): start the GUI here once it exists.
-Write-Host "Started. Watch a stream with: python -m mocks.tap transcript | suggestions"
-Write-Host "Dev preview of the GUI: open mocks\preview.html in a browser."
+Start-Part "3 GUI" "gui"
+
+Write-Host "Started. Overlay and canvas open from python -m gui."
+Write-Host "Watch a stream with: python -m mocks.tap transcript | suggestions"

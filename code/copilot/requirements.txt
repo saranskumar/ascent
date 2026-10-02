@@ -1,2 +1,3 @@
 aiohttp>=3.9
 pillow          # mock_engine placeholder images
+PySide6         # co-pilot overlay and canvas
