@@ -54,6 +54,8 @@ class StreamServer:
         return d
 
     def since(self, since: int | None) -> list[dict]:
+        if since is not None and since > self.seq:
+            since = None        # client saw a previous run of this server (we restarted): start fresh
         if since is None:
             cutoff = time.monotonic() - self.replay_seconds
             return [d for t, d in self.history if t >= cutoff]

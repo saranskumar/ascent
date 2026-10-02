@@ -1,0 +1,11 @@
+{"id": "s1", "text": "Morning everyone, can you all hear me okay?", "start": 0.0, "end": 3.0, "speaker": "host"}
+{"id": "s2", "text": "Yeah we can hear you. Is Arjun joining today or is he on leave?", "start": 3.5, "end": 7.5, "speaker": "guest"}
+{"id": "s3", "text": "He's on leave till Thursday, so let's just do quick updates.", "start": 8.0, "end": 11.5, "speaker": "host"}
+{"id": "s4", "text": "I finished the ticket for the settings page yesterday, it's in review now.", "start": 12.0, "end": 16.5, "speaker": "guest"}
+{"id": "s5", "text": "Nice. Can someone pick up the two bugs from QA? They're both small.", "start": 17.0, "end": 21.0, "speaker": "host"}
+{"id": "s6", "text": "I'll take them after lunch. Also, are we still doing the retro on Friday at four?", "start": 21.5, "end": 26.0, "speaker": "guest"}
+{"id": "s7", "text": "Yes, Friday at four, I'll send the invite. Let me know if that clashes with anything.", "start": 26.5, "end": 31.0, "speaker": "host"}
+{"id": "s8", "text": "Honestly I think we should push the release by a week, we're a bit behind.", "start": 31.5, "end": 36.0, "speaker": "guest"}
+{"id": "s9", "text": "Let's look at that on Wednesday when we have the numbers. Anything else?", "start": 36.5, "end": 40.5, "speaker": "host"}
+{"id": "s10", "text": "Nope, that's it from me. Have a good one.", "start": 41.0, "end": 43.5, "speaker": "guest"}
+{"id": "s11", "text": "Thanks all, see you tomorrow.", "start": 44.0, "end": 46.0, "speaker": "host"}

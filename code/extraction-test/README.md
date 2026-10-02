@@ -6,7 +6,11 @@ Summary of what was said **and** shown, built on Meetily Pro. See `docs/tech/` f
 ```
 pip install -r requirements.txt
 ```
-Secrets go in a gitignored `.env` next to `cli.py` (or in real environment variables, which win):
+Secrets go in a gitignored `.env` next to `cli.py` (copy from `.env.example`, or in real environment variables, which win):
+```
+cp .env.example .env
+```
+Edit `.env` with:
 ```
 GEMINI_API_KEY=...        # Google AI Studio key from a project with Gemini quota
 MEETILY_PRO_TOKEN=...     # Meetily key with `write` scope, Allow switch on (only used for writing)

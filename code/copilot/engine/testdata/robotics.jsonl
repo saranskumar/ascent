@@ -1,0 +1,9 @@
+{"id": "r1", "text": "Okay so this week we finalised the drivetrain for the competition robot.", "start": 0.0, "end": 4.5, "speaker": "host"}
+{"id": "r2", "text": "We went with mecanum wheels, the ones with the little rollers at forty five degrees, so it can strafe sideways.", "start": 5.0, "end": 11.5, "speaker": "host"}
+{"id": "r3", "text": "For the arm joint we needed a lot of torque in a small space, so we're using a cycloidal drive.", "start": 12.0, "end": 18.0, "speaker": "host"}
+{"id": "r4", "text": "If you haven't seen one, picture a disc with lobes that wobbles around inside a ring of pins.", "start": 18.5, "end": 24.0, "speaker": "host"}
+{"id": "r5", "text": "It gives you something like a thirty to one reduction with almost no backlash.", "start": 24.5, "end": 28.5, "speaker": "host"}
+{"id": "r6", "text": "The controller is a Raspberry Pi 5 talking to the motor drivers over CAN bus.", "start": 29.0, "end": 34.0, "speaker": "host"}
+{"id": "r7", "text": "Budget wise we're fine, we spent about sixty percent so far.", "start": 34.5, "end": 38.0, "speaker": "host"}
+{"id": "r8", "text": "For sensing we added a lidar on top, it's that spinning puck you see on robot vacuums.", "start": 38.5, "end": 44.0, "speaker": "host"}
+{"id": "r9", "text": "Next week we start testing on the practice field. Any questions?", "start": 44.5, "end": 48.5, "speaker": "host"}

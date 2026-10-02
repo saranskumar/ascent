@@ -9,14 +9,14 @@
 | [meetily-api-findings.md](meetily-api-findings.md) | What Meetily Pro's API can and can't do (tested), events, scopes, write-back, summary engine notes |
 | [summary-pipeline.md](summary-pipeline.md) | Visual context summary: product goals, post-meeting pipeline, open decision (build on Meetily's summary vs our own) |
 | [screen-capture.md](screen-capture.md) | Screenshot capture and selection: MVP based on lecture-to-notes, presenting vs watching, content-area detection plan |
-| [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: why it's blocked, the four options, status on hold |
+| [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: current status, why the transcript source is blocked, the four options |
 | [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's exact summary prompts, template and settings (from its source), to make our summary match |
 | [code/copilot/](../../code/copilot/README.md) | Live co-pilot code: the 3-part split (transcript / image engine / GUI), message contract, mocks |
 
 ## Current plan (short)
 
 1. **Priority: Visual context summary**, built as a Meetily workflow: `recording.started` → capture the chosen window → `recording.stopped` / `summary.completed` → extract distinct screenshots → local OCR (diagram images to Gemini) → interleave `[SCREEN]` lines into the transcript → **our own summary with Gemini using Meetily's template/prompts** → back up Meetily's summary → `PUT` ours into Meetily.
-2. **Live co-pilot: on hold.** Meetily returns `409 recording_in_progress` for transcripts during a recording; options are documented.
+2. **Live co-pilot: in progress, as three parts** (transcript → image engine → GUI overlay + shared canvas). The image engine works end to end (web image search, ~5-7 s from speech to suggestion); the live transcript source is still open because Meetily returns `409 recording_in_progress` during a recording (options documented).
 3. **Capture, OCR and transcription stay local**; **LLM APIs (Gemini) are allowed** for summarisation (decided Oct 2).
 4. **Workflow requirements:** Subscribe → Verify HMAC → Deduplicate → Fetch → Act; least-privilege keys; no hard-coded secrets; handle Meetily offline; `manifest.yaml`.
 
@@ -41,7 +41,8 @@ Our workflow (local)
 | Vision | Gemini, diagram-heavy screenshots only |
 | LLM | Gemini API (key in env var), Meetily's prompts/template |
 | Picker | Small GUI listing open windows with thumbnails |
-| Code | `code/extraction-test/` |
+| Code | `code/extraction-test/` (visual summary), `code/copilot/` (live co-pilot) |
+| Co-pilot LLM / search | Gemini flash-lite (local llama.cpp fallback); Serper, DuckDuckGo, Wikimedia Commons for images |
 | Hardware | Laptop RTX 2050, 4 GB VRAM, shared with Meetily's own transcription |
 
 ## Experiments
