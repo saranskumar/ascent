@@ -1,54 +1,15 @@
-# Hackathon Journey — Notes & Group Discussions (GD)
+# Hackathon Group Discussions (GD)
 
-Central log and repository of notes, brainstorming sessions, design decisions, and team discussions for the hackathon.
-
----
-
-## 📌 Quick Overview
-- **Project**: Ascent
-- **Event**: Hackathon
-- **Current Phase**: Ideation & Problem Discovery
+This folder contains meeting notes and group discussion logs added by the team during the hackathon.
 
 ---
 
-## 📑 Discussion & Notes Index
+## 📑 Discussions Log
 
-| # | Date | Topic / Focus | Key Outcome / Next Action | File Link |
-|---|------|---------------|---------------------------|-----------|
-| 01 | — | Kickoff & Problem Statement Brainstorming | Finalize problem statement and target audience | *Pending* |
-| 02 | — | Technical Feasibility & Architecture | Select stack and define core workflows | *Pending* |
-| 03 | — | Mid-Hackathon Review & Sprint Alignment | Review working prototype & blockers | *Pending* |
+| # | File | Date & Time | Topic | Participants | Key Decision / Focus |
+|---|------|-------------|-------|--------------|----------------------|
+| 01 | [1.md](file:///d:/WORK/11.11/ascent/GD/1.md) | Oct 2 · 10:41 - 10:46 | Project Kickoff & Feature Ideation | Harinarayanan, Sreevardhan, Meharin | Prioritized **Visual Context Summary Feature** (presentation & slide analysis to augment meeting summaries) over live co-pilot. |
 
 ---
 
-## 📂 Recommended Directory Structure
-
-```text
-GD/
-├── README.md               # Index of all sessions and overview
-├── 01-problem-discovery.md # Initial brainstorm & problem scoping
-├── 02-architecture-spec.md # Technical decisions, stack, APIs
-└── 03-team-syncs/          # Daily standup/sync notes
-```
-
----
-
-## 📝 Session Template
-
-When logging a new session, follow this structure:
-
-```markdown
-# GD / Note: [Topic Title]
-- **Date & Time**: YYYY-MM-DD HH:MM
-- **Participants**: 
-- **Goal / Agenda**: 
-
-### 1. Discussion Points
-- 
-
-### 2. Decisions Made
-- [x] Decision 1: ...
-
-### 3. Action Items & Owners
-- [ ] Task 1 (@owner) - Due: ...
-```
+> **Note**: Only raw discussion logs, meeting summaries, and notes from team members and collaborators are stored in this folder.
