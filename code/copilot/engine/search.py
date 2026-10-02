@@ -66,8 +66,12 @@ def wikimedia(query: str, n: int) -> list[Candidate]:
     # Commons search needs every word to match file titles/descriptions, so drop the "kind" words
     # the LLM appends, and if that still finds nothing, retry with just the first three words.
     words = [w for w in query.split() if w.lower() not in KIND_WORDS] or query.split()
+    keys = {w.lower().rstrip("s") for w in words if len(w) > 3}
     for q in dict.fromkeys([" ".join(words), " ".join(words[:3])]):
-        res = _wikimedia(q, n)
+        # its full-text search also matches descriptions, which drags in unrelated photos;
+        # keep files whose title shares a word with the query
+        res = [c for c in _wikimedia(q, n)
+               if keys & {w.lower().rstrip("s") for w in c.title.replace("_", " ").split()}]
         if res:
             return res
     return []
