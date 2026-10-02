@@ -8,7 +8,8 @@ Image files are served from .cache/images at http://127.0.0.1:8772/images/<file>
 
 Pipeline per suggestion:  detect.py (cue fast path / LLM slow path)  ->  search.py (Serper / DDG /
 Wikimedia)  ->  fetch.py (download, filter, dedupe, resize)  ->  publish.
-Every decision is appended to .cache/engine_log.jsonl for tuning.
+Every decision is appended to .cache/engine_log.jsonl and published on the dev-only stream
+ws://127.0.0.1:8772/events (not part of the contract; the engine console reads it).
 """
 from __future__ import annotations
 
@@ -39,8 +40,11 @@ RECENT_TOPICS_SHOWN = 300 # topics from the last 5 min are listed to the LLM as 
 
 
 class Engine:
-    def __init__(self, publish, images_dir: Path = IMAGES, log_path: Path | None = LOG):
+    def __init__(self, publish, images_dir: Path = IMAGES, log_path: Path | None = LOG,
+                 on_event=None):
         self.publish = publish                       # async (Suggestion) -> dict
+        self.on_event = on_event                     # (dict) -> None, every log event (dev console)
+        self.n_run = 0
         self.images_dir = images_dir
         self.log_path = log_path
         self.segments: "OrderedDict[str, Segment]" = OrderedDict()
@@ -61,6 +65,11 @@ class Engine:
     async def on_segment(self, seg: Segment) -> None:
         if not seg.final or not seg.text.strip():
             return
+        old = self.segments.get(seg.id)
+        if old and old.text != seg.text:
+            self.checked.discard(seg.id)     # revised text (or a restarted source reusing ids): look again
+        elif old:
+            return                           # exact repeat, e.g. replay after a reconnect
         self.segments[seg.id] = seg
         self.segments.move_to_end(seg.id)
         self.arrived.setdefault(seg.id, time.monotonic())
@@ -89,14 +98,18 @@ class Engine:
         new = {s.id for s in w if s.id not in self.checked} | {seg.id}
         self.checked |= new
         t0 = time.monotonic()
+        run = self._start_run("fast", w, new, m.group(0))
         try:
             need = await asyncio.to_thread(detect.ask, w, new, self.recent_topics(), m.group(0))
         except llm.LLMError as e:
-            self.log("llm_error", path="fast", error=str(e)[:300])
+            self.log("llm_error", run=run, path="fast", error=str(e)[:300])
             need = detect.heuristic(seg, m)
-        self.log("detect", path="fast", seg=seg.id, cue=m.group(0), secs=round(time.monotonic() - t0, 2),
-                 need=need.__dict__ if need else None)
+        if need:
+            need.run = run
+        self.log("detect", run=run, path="fast", seg=seg.id, cue=m.group(0),
+                 secs=round(time.monotonic() - t0, 2), need=need.__dict__ if need else None)
         if need and not self.reserve(need.topic, check_only=True):
+            self.log("skip_duplicate", run=run, topic=need.topic)
             self._upgrade(need.topic)
         elif need:
             await self.suggest(need, [seg.id], t_start=self.arrived.get(seg.id, t0))
@@ -111,7 +124,7 @@ class Engine:
             if (topic is None and now - at < 15) or (topic and detect.same_topic(topic, t)):
                 if need.priority != "elevated":
                     need.priority = "elevated"
-                    self.log("upgrade", topic=t)
+                    self.log("upgrade", run=need.run, topic=t)
 
     async def tick(self) -> None:
         """Slow path: one LLM look at recent speech, if anything new was said."""
@@ -125,19 +138,31 @@ class Engine:
         self.last_slow = time.monotonic()
         self.checked |= new
         t0 = time.monotonic()
+        run = self._start_run("slow", w, new, None)
         try:
             need = await asyncio.to_thread(detect.ask, w, new, self.recent_topics(), None)
         except llm.LLMError as e:
-            self.log("llm_error", path="slow", error=str(e)[:300])
+            self.log("llm_error", run=run, path="slow", error=str(e)[:300])
             return
         finally:
             self.slow_busy = False
-        self.log("detect", path="slow", new=sorted(new), secs=round(time.monotonic() - t0, 2),
+        if need:
+            need.run = run
+        self.log("detect", run=run, path="slow", new=sorted(new), secs=round(time.monotonic() - t0, 2),
                  need=need.__dict__ if need else None)
         if need:
             src = [s.id for s in w if s.id in new][-3:]
             first_new = min((self.arrived.get(i, t0) for i in src), default=t0)
             await self.suggest(need, src, t_start=first_new)
+
+    def _start_run(self, path: str, w: list[Segment], new: set[str], cue: str | None) -> str:
+        self.n_run += 1
+        run = f"r{self.n_run}"
+        self.log("detect_start", run=run, path=path, cue=cue,
+                 new_lines=[s.text for s in w if s.id in new],
+                 recent_topics=self.recent_topics(),
+                 prompt=detect.build_prompt(w, new, self.recent_topics(), cue))
+        return run
 
     # ----------------------------------------------------------------------------- topics
     def recent_topics(self) -> list[str]:
@@ -158,7 +183,7 @@ class Engine:
     # ----------------------------------------------------------------------------- retrieve
     async def suggest(self, need: detect.Need, source_ids: list[str], t_start: float) -> None:
         if not self.reserve(need.topic):
-            self.log("skip_duplicate", topic=need.topic)
+            self.log("skip_duplicate", run=need.run, topic=need.topic)
             return
         self.n_sug += 1
         sid = f"sug-{self.run}-{self.n_sug:03d}"
@@ -171,13 +196,20 @@ class Engine:
 
     async def _suggest(self, need: detect.Need, sid: str, source_ids: list[str], t_start: float,
                        t0: float) -> None:
+        self.log("search_start", run=need.run, sug=sid, query=need.query, kind=need.kind)
         cands, providers = await asyncio.to_thread(search.search_all, need.query, 20)
+        t_s = time.monotonic()
+        self.log("search", run=need.run, sug=sid, query=need.query, providers=providers,
+                 n=len(cands), secs=round(t_s - t0, 2))
+        report: list[dict] = []
         picked = await fetch.fetch_best(cands, need.kind, self.images_dir, sid, want=3,
-                                        seen_hashes=self.seen_hashes, try_n=14)
+                                        seen_hashes=self.seen_hashes, try_n=14, report=report)
         t_search = time.monotonic() - t0
+        self.log("fetch", run=need.run, sug=sid, secs=round(time.monotonic() - t_s, 2),
+                 picked=len(picked), candidates=report)
         if not picked:
             self.release(need.topic)
-            self.log("no_images", sug=sid, query=need.query, providers=providers)
+            self.log("no_images", run=need.run, sug=sid, query=need.query, providers=providers)
             return
 
         images = []
@@ -195,7 +227,7 @@ class Engine:
         total = time.monotonic() - t_start
         self.suggested[sid] = {"topic": need.topic, "query": need.query,
                                "images": {i.id: i.source_ref for i in images}}
-        self.log("suggest", sug=sid, seq=d.get("seq"), path=need.path, backend=need.backend,
+        self.log("suggest", run=need.run, sug=sid, seq=d.get("seq"), path=need.path, backend=need.backend,
                  topic=need.topic, query=need.query, kind=need.kind, priority=need.priority,
                  providers=providers, n_images=len(images), search_secs=round(t_search, 2),
                  total_secs=round(total, 2), images=[i.source_ref for i in images])
@@ -229,11 +261,12 @@ class Engine:
             print(f"[engine] task failed: {t.exception()!r}")
 
     def log(self, event: str, **kw) -> None:
-        if not self.log_path:
-            return
         kw = {"t": round(time.time(), 2), "event": event, **kw}
-        with self.log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(kw, ensure_ascii=False, default=str) + "\n")
+        if self.on_event:
+            self.on_event(kw)
+        if self.log_path:
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(kw, ensure_ascii=False, default=str) + "\n")
 
 
 async def tick_loop(engine: Engine) -> None:
@@ -250,7 +283,16 @@ def main():
     engine: Engine
     stream = StreamServer("suggestions", replay_seconds=120,
                           on_message=lambda d: _async(engine.on_feedback, d))
-    engine = Engine(stream.publish)
+    events = StreamServer("events", replay_seconds=600)    # dev-only: what the engine is doing
+    loop_holder: dict = {}
+
+    def on_event(d: dict) -> None:
+        # Engine.log is sync and may run in a worker thread; publish on the event loop, in order.
+        loop = loop_holder.get("loop")
+        if loop:
+            loop.call_soon_threadsafe(lambda: loop.create_task(events.publish(d)))
+
+    engine = Engine(stream.publish, on_event=on_event)
 
     async def on_segment(d: dict):
         msg = from_dict(d)
@@ -259,9 +301,11 @@ def main():
 
     app = web.Application()
     stream.attach(app)
+    events.attach(app)
     app.router.add_static("/images", IMAGES)
 
     async def start(_):
+        loop_holder["loop"] = asyncio.get_running_loop()
         app["sub"] = asyncio.create_task(Subscriber(TRANSCRIPT_WS, on_segment).run())
         app["tick"] = asyncio.create_task(tick_loop(engine))
         if not llm.backends() or llm.backends() == ["local"]:

@@ -6,6 +6,27 @@ Reads segments from part 1, decides when a picture would help, finds 3 images on
 python -m engine.main
 ```
 
+## Engine console (dev UI)
+
+```bash
+python -m engine.console                     # typing mode: type lines in the page as the speaker
+python -m engine.console --transcript mock   # scripted talk
+python -m engine.console --transcript none   # you run the transcript source yourself (e.g. Hari's real one)
+```
+
+This opens `http://127.0.0.1:8770`, one page showing:
+- **Live transcript** from `ws :8771/transcript`, with a box to type lines in typing mode.
+- **Engine runs**, every time the engine looks at the speech:
+  - what it heard, and the exact prompt
+  - the LLM's decision (topic, query, kind, confidence, why)
+  - the search (providers, number of candidates)
+  - **every candidate image, with why it was picked or dropped**
+  - the final suggestion, with its latency
+- **Suggestions → GUI**, exactly what Mahreen's GUI receives. Click an image to view it full size. Tick "act as GUI" to also send `select`/`dismiss` to the engine.
+- **Controls**: start, stop or restart the transcript source (typing or mock) and the engine (real or mock, with LLM and search options), plus each process's output under *Logs*. Stopping the console (Ctrl+C) stops what it started.
+
+The engine publishes its decisions on `ws://127.0.0.1:8772/events`. That stream is for dev tools only and is **not** part of the contract.
+
 ## How it works
 
 ```text

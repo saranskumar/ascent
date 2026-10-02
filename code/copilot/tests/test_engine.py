@@ -70,9 +70,9 @@ def _png(color, shape=True) -> bytes:
 
 
 def test_process_rejects_blank_and_garbage():
-    assert fetch._process(_png("red"), "photo")
-    assert fetch._process(_png("red", shape=False), "photo") is None   # blank
-    assert fetch._process(b"<html>not an image</html>", "photo") is None
+    assert isinstance(fetch._process(_png("red"), "photo"), tuple)
+    assert fetch._process(_png("red", shape=False), "photo") == "blank"
+    assert fetch._process(b"<html>not an image</html>", "photo") == "not a readable image"
 
 
 # ------------------------------------------------------------------------------------- engine
@@ -146,3 +146,15 @@ def test_dismiss_keeps_topic_blocked(monkeypatch, tmp_path):
     sid = w.published[0].id
     eng.on_feedback({"type": "dismiss", "suggestion_id": sid})
     assert not eng.reserve("split keyboards", check_only=True)
+
+
+def test_revised_segment_is_checked_again(monkeypatch, tmp_path):
+    w = FakeWorld(monkeypatch, tmp_path, {"keyboard": "Split Keyboard"})
+    eng = em.Engine(w.publish, images_dir=tmp_path, log_path=None)
+
+    async def go():
+        await _feed(eng, ["hello there"])                                       # id s0, nothing to show
+        await eng.on_segment(Segment("s0", "anyone tried the split keyboard?", 0, 4))  # same id, new text
+        await _feed(eng, [])
+    asyncio.run(go())
+    assert [s.topic for s in w.published] == ["Split Keyboard"]

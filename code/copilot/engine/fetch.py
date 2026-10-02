@@ -66,7 +66,8 @@ def similar(a: int, b: int, bits: int = 6) -> bool:
     return bin(a ^ b).count("1") <= bits
 
 
-def _process(data: bytes, kind: str) -> tuple[PImage.Image, int] | None:
+def _process(data: bytes, kind: str) -> tuple[PImage.Image, int] | str:
+    """(image, hash) if usable, else the reason it was rejected."""
     try:
         im = PImage.open(io.BytesIO(data))
         im.seek(0)                        # first frame of GIFs
@@ -79,11 +80,11 @@ def _process(data: bytes, kind: str) -> tuple[PImage.Image, int] | None:
         else:
             im = im.convert("RGB")
     except Exception:
-        return None
+        return "not a readable image"
     if not size_ok(*im.size, kind):
-        return None
-    if max(ImageStat.Stat(im.convert("L")).stddev) < 10:     # blank / single colour
-        return None
+        return f"too small or banner ({im.width}x{im.height})"
+    if max(ImageStat.Stat(im.convert("L")).stddev) < 10:
+        return "blank"
     return im, ahash(im)
 
 
@@ -108,13 +109,27 @@ async def _download(session: aiohttp.ClientSession, url: str) -> bytes | None:
 
 async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str, want: int = 3,
                      seen_hashes: list[int] = (), try_n: int = 10, soft: float = 2.0,
-                     timeout: float = 6) -> list[Fetched]:
+                     timeout: float = 6, report: list | None = None) -> list[Fetched]:
     """Download up to `try_n` candidates in parallel; return up to `want` good, distinct ones in
     search order (at most one per domain, so the host gets genuinely different options).
-    After `soft` seconds, stop waiting for slow servers if enough downloads are already in."""
-    pool = [c for c in cands if not blocked(c) and size_ok(c.width, c.height, kind)][:try_n]
-    if not pool:
+    After `soft` seconds, stop waiting for slow servers if enough downloads are already in.
+    If `report` is given, one dict per candidate (with the reason it was kept or not) is appended."""
+    recs = [{"url": c.url, "thumb": c.thumb, "page": c.page, "domain": c.domain,
+             "provider": c.provider, "title": c.title[:90], "w": c.width, "h": c.height,
+             "status": "not tried"} for c in cands]
+    pool_idx = []
+    for i, c in enumerate(cands):
+        if blocked(c):
+            recs[i]["status"] = "stock / blocked site"
+        elif not size_ok(c.width, c.height, kind):
+            recs[i]["status"] = "too small or banner"
+        elif len(pool_idx) < try_n:
+            pool_idx.append(i)
+    if report is not None:
+        report.extend(recs)
+    if not pool_idx:
         return []
+    pool = [cands[i] for i in pool_idx]
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout, sock_connect=3)) as s:
         tasks = [asyncio.create_task(_download(s, c.url)) for c in pool]
         done, pending = await asyncio.wait(tasks, timeout=soft)
@@ -122,25 +137,40 @@ async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str
             done, pending = await asyncio.wait(tasks, timeout=timeout - soft)
         for t in pending:
             t.cancel()
-        datas = [t.result() if t in done else None for t in tasks]
+        datas = [t.result() if t in done else ("slow" if t in pending else None) for t in tasks]
 
     picked: list[Fetched] = []
     domains: set[str] = set()
     hashes = list(seen_hashes)
-    for c, data in zip(pool, datas):
-        if len(picked) >= want or not data or (c.domain in domains and c.provider != "wikimedia"):
+    for i, c, data in zip(pool_idx, pool, datas):
+        rec = recs[i]
+        if data == "slow":
+            rec["status"] = "too slow, skipped"
+            continue
+        if not data:
+            rec["status"] = "download failed"
+            continue
+        if len(picked) >= want:
+            rec["status"] = "spare (enough already)"
+            continue
+        if c.domain in domains and c.provider != "wikimedia":
+            rec["status"] = "same site as a picked one"
             continue
         res = await asyncio.to_thread(_process, data, kind)
-        if not res:
+        if isinstance(res, str):
+            rec["status"] = res
             continue
         im, h = res
         if any(similar(h, o) for o in hashes):
+            rec["status"] = "duplicate"
             continue
-        i = len(picked) + 1
-        full, thumb = out_dir / f"{name}-{i}.jpg", out_dir / f"{name}-{i}_thumb.jpg"
+        n = len(picked) + 1
+        full, thumb = out_dir / f"{name}-{n}.jpg", out_dir / f"{name}-{n}_thumb.jpg"
         await asyncio.to_thread(_save, im, full, thumb)
         w, hh = im.size if max(im.size) <= FULL_MAX else _fit(im.size, FULL_MAX)
         picked.append(Fetched(c, full, thumb, w, hh, h))
+        rec["status"] = "picked"
+        rec["w"], rec["h"] = im.size
         domains.add(c.domain)
         hashes.append(h)
     return picked

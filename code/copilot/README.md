@@ -34,6 +34,10 @@ pip install -r requirements.txt
 
 `--speed 3` makes either mock replay faster. `mocks/preview.html` is a throwaway overlay + canvas in one browser page, useful for seeing the whole chain work before the real GUI exists.
 
+## Engine console
+
+`python -m engine.console` opens one page with the live transcript, each engine decision (including every search candidate and why it was kept or dropped), and the suggestions as the GUI receives them. It also starts and stops the parts. See [engine/README.md](engine/README.md#engine-console-dev-ui).
+
 ## Everything together
 
 ```powershell

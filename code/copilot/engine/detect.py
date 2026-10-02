@@ -63,6 +63,7 @@ class Need:
     confidence: float
     path: str          # "fast" | "slow" | "heuristic"
     backend: str = ""
+    run: str = ""      # engine's id for this detection, so dev tools can follow it through search
 
 
 def find_cue(text: str) -> re.Match | None:

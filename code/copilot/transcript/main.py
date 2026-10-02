@@ -5,6 +5,7 @@ Everything below the line is yours to replace; keep the publish() calls and the 
 
 Right now it runs in "typing mode": every line you type becomes a final segment. That is already
 useful for the engine (type "let me explain the circuit breaker pattern" and watch what happens).
+Lines can also be POSTed to /transcript/say as {"text": "..."} (the engine console's typing box).
 
     python -m transcript.main
 """
@@ -32,9 +33,28 @@ stream = StreamServer("transcript")
 #   - `start`/`end` in seconds from the start of the meeting
 #   - aim for < 5 s from speech to the final segment
 # ---------------------------------------------------------------------------------------------
+T0 = time.monotonic()
+RUN = time.strftime("%H%M%S")   # ids stay unique if this process restarts
+_n = 0
+
+
+async def say(text: str) -> dict:
+    global _n
+    _n += 1
+    now = time.monotonic() - T0
+    return await stream.publish(Segment(id=f"seg-{RUN}-{_n:03d}", text=text.strip(), start=max(0, now - 3),
+                                        end=now, final=True, speaker="host"))
+
+
+async def say_handler(request: web.Request) -> web.Response:
+    text = str((await request.json()).get("text", "")).strip()
+    if not text:
+        return web.json_response({"ok": False, "error": "empty"}, status=400)
+    d = await say(text)
+    return web.json_response({"ok": True, "seq": d["seq"]})
+
+
 async def typing_source():
-    t0 = time.monotonic()
-    n = 0
     loop = asyncio.get_running_loop()
     print("typing mode: each line you enter is sent as a final segment")
     while True:
@@ -43,16 +63,14 @@ async def typing_source():
             return
         if not line.strip():
             continue
-        n += 1
-        now = time.monotonic() - t0
-        d = await stream.publish(Segment(id=f"seg-{n:04d}", text=line.strip(), start=max(0, now - 3),
-                                         end=now, final=True, speaker="host"))
+        d = await say(line)
         print(f"  sent #{d['seq']}")
 
 
 def main():
     app = web.Application()
     stream.attach(app)
+    app.router.add_post("/transcript/say", say_handler)
 
     async def start(_):
         app["source"] = asyncio.create_task(typing_source())
