@@ -2,3 +2,4 @@ aiohttp>=3.9
 pillow          # image processing (engine) + mock_engine placeholders
 google-genai    # engine LLM (Gemini); falls back to a local llama.cpp server
 ddgs            # engine keyless image search (DuckDuckGo)
+PySide6         # co-pilot overlay and canvas

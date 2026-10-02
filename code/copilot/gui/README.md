@@ -24,25 +24,41 @@ This sends scripted suggestions with placeholder images and prints every select/
 ## Features (from drops/initial_idea.md §2.1–2.4)
 
 Must have:
-- [ ] **Overlay** lists incoming suggestions: topic, reason, 2–3 thumbnails, ✕ to dismiss (sends `dismiss`).
-- [ ] **Click / select a thumbnail** puts it on the canvas and sends `select`.
-- [ ] **Canvas** shows the active image centred and fitted, on a neutral dark background (`#0f172a`), with a short crossfade between images.
-- [ ] **Two suggestion states** based on `priority`:
+- [x] **Overlay** lists incoming suggestions: topic, reason, 2–3 thumbnails, ✕ to dismiss (sends `dismiss`).
+- [x] **Click / select a thumbnail** puts it on the canvas and sends `select`.
+- [x] **Canvas** shows the active image centred and fitted, on a neutral dark background (`#0f172a`), with a short crossfade between images.
+- [x] **Two suggestion states** based on `priority`:
   - `ambient` ("ghost"): faint (~30% opacity), no sound or animation that pulls attention.
   - `elevated`: full opacity with a subtle border glow.
   - Hide a suggestion after `expires_in` seconds unless the host is hovering over it.
 
 Should have:
-- [ ] **Keyboard controls** (when the overlay is focused):
+- [x] **Keyboard controls** (when the overlay is focused):
   - `1` / `2` / `3`: put image 1/2/3 of the newest suggestion on the canvas.
   - `Space`: put the highlighted image on the canvas.
   - `←` / `→`: step back and forward through the history of what has been shown.
-- [ ] **History reel** in the overlay: past images shown on the canvas, dimmed (~40%), so the host can go back to one with a click or `←`.
-- [ ] **Panic shutter** (`B` or `Esc`): instantly blank the canvas to a neutral slate. The host keeps sharing the canvas window, but the audience sees nothing. Press again to bring the image back.
+- [x] **History reel** in the overlay: past images shown on the canvas, dimmed (~40%), so the host can go back to one with a click or `←`.
+- [x] **Panic shutter** (`B` or `Esc`): instantly blank the canvas to a neutral slate. The host keeps sharing the canvas window, but the audience sees nothing. Press again to bring the image back.
 
 Nice to have:
-- [ ] **Paste / drop to stage:** dropping an image file on the overlay, or pressing `Ctrl+V` with an image on the clipboard, puts it on the canvas straight away (or adds it as an elevated card). This is purely local and never touches the engine.
-- [ ] Overlay window hidden from screen capture (see below).
+- [x] **Paste / drop to stage:** dropping an image file on the overlay, or pressing `Ctrl+V` with an image on the clipboard, puts it on the canvas straight away. This is purely local and never touches the engine.
+- [x] Overlay window hidden from screen capture (see below).
+
+## How to run
+
+The GUI is a PySide6 app. It does not talk to Meetily. It only needs the suggestions socket.
+
+From `code/copilot`:
+
+```bash
+pip install -r requirements.txt
+python -m mocks.mock_engine --speed 2 --loop
+python -m gui
+```
+
+`python -m gui` opens **Co-pilot overlay** (always on top, excluded from screen capture) and **Co-pilot canvas** (share this window). The mock prints every `select` and `dismiss`.
+
+`run_all.ps1` starts this GUI with `python -m gui` after the engine. The port follows `COPILOT_ENGINE_PORT` (default `8772`).
 
 ## Things to watch out for
 
