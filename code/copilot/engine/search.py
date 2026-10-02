@@ -35,7 +35,7 @@ class Candidate:
 
 
 # Stock sites dominate generic queries ("mango photo" -> all dreamstime) and fetch.py drops them,
-# so ask the search engines not to return them in the first place.
+# so ask DuckDuckGo not to return them (Serper rejects the operators with HTTP 400).
 NO_STOCK = " ".join(f"-site:{d}" for d in ("dreamstime.com", "freepik.com", "shutterstock.com", "alamy.com"))
 
 
@@ -44,7 +44,7 @@ def serper(query: str, n: int) -> list[Candidate]:
     if not key:
         raise RuntimeError("SERPER_API_KEY not set")
     req = urllib.request.Request("https://google.serper.dev/images",
-                                 data=json.dumps({"q": f"{query} {NO_STOCK}", "num": n}).encode(),
+                                 data=json.dumps({"q": query, "num": n}).encode(),
                                  headers={"X-API-KEY": key, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=8) as r:
         d = json.load(r)
