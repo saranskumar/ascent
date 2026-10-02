@@ -1,6 +1,6 @@
 """Web image search. Each provider returns Candidates in its own relevance order.
 
-Providers, tried in order until one returns results (override with COPILOT_SEARCH=ddg,wikimedia,...):
+Providers, in preference order (override with COPILOT_SEARCH=ddg,wikimedia,...):
     serper     Google Images via serper.dev     needs SERPER_API_KEY
     ddg        DuckDuckGo images via `ddgs`      keyless, unofficial (can be rate-limited)
     wikimedia  Wikimedia Commons API             keyless, good for diagrams, weak relevance
@@ -93,19 +93,47 @@ def provider_order() -> list[str]:
 
 
 _benched: dict[str, float] = {}
+GRACE = float(os.environ.get("COPILOT_SEARCH_GRACE", 1.5))  # after the first provider answers, wait this long for the other
 
 
-def search(query: str, n: int = 20, skip: set[str] = frozenset()) -> tuple[list[Candidate], str]:
-    """First provider (not in `skip`) that returns results. Returns (candidates, provider name)."""
-    for name in provider_order():
-        if name in skip or time.monotonic() < _benched.get(name, 0):
-            continue
-        try:
-            res = PROVIDERS[name](query, n)
-        except Exception as e:
-            _benched[name] = time.monotonic() + 60
-            print(f"[search] {name} failed, benched 60s: {type(e).__name__}: {str(e)[:120]}")
-            continue
-        if res:
-            return res, name
-    return [], ""
+def _one(name: str, query: str, n: int) -> list[Candidate]:
+    try:
+        return PROVIDERS[name](query, n)
+    except Exception as e:
+        _benched[name] = time.monotonic() + 60
+        print(f"[search] {name} failed, benched 60s: {type(e).__name__}: {str(e)[:120]}")
+        return []
+
+
+def search_all(query: str, n: int = 20) -> tuple[list[Candidate], list[str]]:
+    """Race the first two usable providers: when one answers, give the other GRACE seconds, then
+    merge whatever is in (provider order, no duplicate URLs). Later providers are only asked if
+    those came back empty. Returns (candidates, ["provider:count", ...])."""
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    order = [p for p in provider_order() if time.monotonic() >= _benched.get(p, 0)]
+    first, rest = order[:2], order[2:]
+    results: dict[str, list[Candidate]] = {}
+    if first:
+        ex = ThreadPoolExecutor(len(first))
+        futs = {ex.submit(_one, name, query, n): name for name in first}
+        done, pending = wait(futs, return_when=FIRST_COMPLETED)
+        if pending and not any(f.result() for f in done):
+            done, pending = wait(futs)                    # first one was empty: wait for the other
+        elif pending:
+            more, pending = wait(pending, timeout=GRACE)
+            done |= more
+        ex.shutdown(wait=False, cancel_futures=True)      # a slow straggler is simply ignored
+        results = {futs[f]: f.result() for f in done}
+    if not any(results.values()):
+        for name in rest:
+            results[name] = _one(name, query, n)
+            if results[name]:
+                break
+    seen, merged = set(), []
+    for name in order:
+        for c in results.get(name, []):
+            if c.url not in seen:
+                seen.add(c.url)
+                merged.append(c)
+    return merged, [f"{name}:{len(results[name])}" for name in order if name in results]

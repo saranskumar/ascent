@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -50,6 +51,7 @@ class LLMError(Exception):
 
 _benched: dict[str, float] = {}   # backend name -> monotonic time it may be used again
 _client = None
+_local_lock = threading.Lock()   # llama.cpp serves one request at a time; don't pile up
 
 
 def _usable(name: str) -> bool:
@@ -103,7 +105,13 @@ def complete_json(system: str, user: str, timeout: float = 12) -> tuple[dict, st
             continue
         try:
             if name == "local":
-                text = _local(system, user, timeout=max(timeout, 30))   # first call loads the model
+                if not _local_lock.acquire(blocking=False):
+                    errors.append("local: busy with another request")
+                    continue
+                try:
+                    text = _local(system, user, timeout=max(timeout, 30))   # first call loads the model
+                finally:
+                    _local_lock.release()
             else:
                 text = _gemini(name.split(":", 1)[1], system, user, timeout)
             return _parse(text), name

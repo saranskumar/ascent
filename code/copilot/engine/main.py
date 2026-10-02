@@ -48,6 +48,7 @@ class Engine:
         self.checked: set[str] = set()               # segment ids the LLM has already looked at
         self.topics: list[tuple[str, float]] = []    # (topic, monotonic time) reserved / suggested
         self.seen_hashes: list[int] = []             # recent image hashes, to avoid repeats
+        self.run = time.strftime("%H%M%S")          # ids/files stay unique across engine restarts
         self.n_sug = 0
         self.n_img = 0
         self.slow_busy = False
@@ -160,7 +161,7 @@ class Engine:
             self.log("skip_duplicate", topic=need.topic)
             return
         self.n_sug += 1
-        sid = f"sug-{self.n_sug:04d}"
+        sid = f"sug-{self.run}-{self.n_sug:03d}"
         t0 = time.monotonic()
         self.pending[need.topic] = (need, t0)
         try:
@@ -170,19 +171,9 @@ class Engine:
 
     async def _suggest(self, need: detect.Need, sid: str, source_ids: list[str], t_start: float,
                        t0: float) -> None:
-        picked: list[fetch.Fetched] = []
-        tried: set[str] = set()
-        providers = []
-        while len(picked) < 2:
-            cands, prov = await asyncio.to_thread(search.search, need.query, 20, tried)
-            if not prov:
-                break
-            tried.add(prov)
-            providers.append(f"{prov}:{len(cands)}")
-            more = await fetch.fetch_best(cands, need.kind, self.images_dir, f"{sid}-{prov}",
-                                          want=3 - len(picked),
-                                          seen_hashes=self.seen_hashes + [p.ahash for p in picked])
-            picked += [p for p in more if p.cand.domain not in {q.cand.domain for q in picked}]
+        cands, providers = await asyncio.to_thread(search.search_all, need.query, 20)
+        picked = await fetch.fetch_best(cands, need.kind, self.images_dir, sid, want=3,
+                                        seen_hashes=self.seen_hashes, try_n=14)
         t_search = time.monotonic() - t0
         if not picked:
             self.release(need.topic)
@@ -192,7 +183,7 @@ class Engine:
         images = []
         for p in picked:
             self.n_img += 1
-            images.append(Image(id=f"img-{self.n_img:04d}", url=f"{IMAGES_URL}/{p.full.name}",
+            images.append(Image(id=f"img-{self.run}-{self.n_img:03d}", url=f"{IMAGES_URL}/{p.full.name}",
                                 thumb_url=f"{IMAGES_URL}/{p.thumb.name}", width=p.width,
                                 height=p.height, source="web", source_ref=p.cand.page or p.cand.url,
                                 caption=p.cand.title[:100]))

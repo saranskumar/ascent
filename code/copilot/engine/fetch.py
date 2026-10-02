@@ -57,7 +57,7 @@ def blocked(c: Candidate) -> bool:
 
 def ahash(im: PImage.Image) -> int:
     g = im.convert("L").resize((8, 8))
-    px = list(g.getdata())
+    px = list(g.tobytes())
     avg = sum(px) / 64
     return sum(1 << i for i, p in enumerate(px) if p > avg)
 
@@ -107,7 +107,7 @@ async def _download(session: aiohttp.ClientSession, url: str) -> bytes | None:
 
 
 async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str, want: int = 3,
-                     seen_hashes: list[int] = (), try_n: int = 10, soft: float = 2.5,
+                     seen_hashes: list[int] = (), try_n: int = 10, soft: float = 2.0,
                      timeout: float = 6) -> list[Fetched]:
     """Download up to `try_n` candidates in parallel; return up to `want` good, distinct ones in
     search order (at most one per domain, so the host gets genuinely different options).
@@ -118,7 +118,7 @@ async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout, sock_connect=3)) as s:
         tasks = [asyncio.create_task(_download(s, c.url)) for c in pool]
         done, pending = await asyncio.wait(tasks, timeout=soft)
-        if pending and sum(1 for t in done if t.result()) < want + 2:
+        if pending and sum(1 for t in done if t.result()) < want + 1:
             done, pending = await asyncio.wait(tasks, timeout=timeout - soft)
         for t in pending:
             t.cancel()

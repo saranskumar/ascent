@@ -46,7 +46,7 @@ If a topic in ALREADY SUGGESTED covers the same thing, answer visual_needed=fals
 Answer with one JSON object:
 {"visual_needed": true|false,
  "topic": "2-5 words, what the picture shows, Title Case",
- "query": "web image search query, 3-8 words, specific, no filler like 'let me' or 'this'; end with diagram/chart/illustration for drawn things, photo for physical things",
+ "query": "web image search query, 3-8 words, specific, no filler like 'let me' or 'this'. End with exactly one of: 'diagram' for drawn ideas (use 'architecture diagram' for how a system is built, 'sequence diagram' only if the speaker walks through messages step by step), 'chart' for graphs, 'photo' for physical things (even technical parts like wheels or gearboxes, unless the speaker explains how they work inside)",
  "kind": "diagram" | "photo" | "chart" | "illustration",
  "reason": "the short quote (max 12 words) from the transcript that triggered it",
  "confidence": 0.0-1.0}

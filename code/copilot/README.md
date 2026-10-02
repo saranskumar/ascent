@@ -12,9 +12,10 @@ While the host is talking, the co-pilot notices when a picture would help, finds
 | --- | --- | --- |
 | [`contracts/`](contracts/) | everyone | **The interface.** Message formats, ports, sample data, and the shared stream helper. Read [contracts/README.md](contracts/README.md) first. |
 | [`transcript/`](transcript/) | Hari | Part 1. Runs in typing mode until the real source is plugged in. |
-| [`engine/`](engine/) | Shreevardhan | Part 2. Wiring done; `detect()` / `retrieve()` still to write. |
+| [`engine/`](engine/) | Shreevardhan | Part 2. Working: cue + LLM detection, web image search, ~5–7 s from speech to suggestion. See [engine/README.md](engine/README.md). |
 | [`gui/`](gui/) | Mahreen | Part 3. Stack still to be chosen. |
 | [`mocks/`](mocks/) | everyone | Fake parts, so each part can be built without the others. |
+| [`tests/`](tests/) | everyone | `python -m pytest -q tests` (offline). |
 
 ## Setup
 
