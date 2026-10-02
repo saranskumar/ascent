@@ -29,8 +29,9 @@ class ThumbButton(QToolButton):
         self._index = index
         self._on_enter = on_enter
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setFixedSize(96, 52)
+        self.setFixedSize(104, 58)
         self.setIconSize(self.size())
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def enterEvent(self, event) -> None:
         self._on_enter(self._index)
@@ -53,25 +54,28 @@ class Card(QFrame):
         self.setObjectName("card")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+        self._elevated = False
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(4, 2, 4, 2)
-        self._layout.setSpacing(2)
+        self._layout.setContentsMargins(8, 6, 8, 8)
+        self._layout.setSpacing(4)
         header = QHBoxLayout()
         self._topic = QLabel()
         self._topic.setWordWrap(False)
-        self._topic.setStyleSheet("font-weight: 600;")
+        self._topic.setStyleSheet("font-size: 13px; font-weight: 600; color: #f8fafc;")
         dismiss = QToolButton()
+        dismiss.setObjectName("dismiss")
         dismiss.setText("✕")
         dismiss.setToolTip("Dismiss")
         dismiss.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        dismiss.setAutoRaise(True)
+        dismiss.setFixedSize(18, 18)
+        dismiss.setCursor(Qt.CursorShape.PointingHandCursor)
         dismiss.clicked.connect(lambda: self._on_dismiss(self.suggestion_id))
         header.addWidget(self._topic, 1)
         header.addWidget(dismiss, 0, Qt.AlignmentFlag.AlignTop)
         self._reason = QLabel()
         self._reason.setWordWrap(False)
         self._reason.setMaximumHeight(16)
-        self._reason.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self._reason.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent;")
         self._thumbs_row = QHBoxLayout()
         self._thumbs_row.addStretch(1)
         self._layout.addLayout(header)
@@ -147,21 +151,29 @@ class Card(QFrame):
             button.setIcon(QIcon(QPixmap.fromImage(image)))
 
     def _paint_highlight(self) -> None:
+        accent = "#fbbf24" if self._elevated else "#7dd3fc"
         for index, button in enumerate(self._thumbs):
-            border = "#38bdf8" if index == self._highlight else "transparent"
+            border = accent if index == self._highlight else "#1e293b"
             button.setStyleSheet(
-                f"QToolButton {{ border: 2px solid {border}; border-radius: 4px; background: #0f172a; }}"
+                "QToolButton {"
+                f"border: 2px solid {border}; border-radius: 8px; background: #0b1220; padding: 0;"
+                "}"
+                "QToolButton:hover { border-color: #e2e8f0; }"
             )
 
     def _set_priority(self, priority) -> None:
-        elevated = priority == "elevated"
-        border = "1px solid #e0a030" if elevated else "none"
+        self._elevated = priority == "elevated"
+        if self._elevated:
+            frame = "background: #172033; border: 1px solid #e0a030;"
+        else:
+            frame = "background: #141c2e; border: 1px solid #243049;"
         self.setStyleSheet(
-            f"QFrame#card {{ background: #1e293b; border-radius: 8px; border: {border}; color: #e5e7eb; }}"
-            "QLabel { color: #e5e7eb; background: transparent; }"
-            "QToolButton { color: #94a3b8; background: transparent; border: none; }"
+            f"QFrame#card {{ {frame} border-radius: 12px; }}"
+            "QLabel { background: transparent; }"
+            "QToolButton#dismiss { color: #94a3b8; background: transparent; border: none; border-radius: 9px; font-size: 11px; }"
+            "QToolButton#dismiss:hover { color: #f8fafc; background: #243049; }"
         )
-        if elevated:
+        if self._elevated:
             glow = QGraphicsDropShadowEffect(self)
             glow.setBlurRadius(18)
             glow.setOffset(0, 0)
@@ -192,38 +204,55 @@ class Overlay(QMainWindow):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
-        self._full_size = (360, 210)
+        self._full_size = (380, 236)
+        self._pill_size = (156, 36)
         self._minimized = False
+        self._chrome_open = True
+        self._collapse_timer = QTimer(self)
+        self._collapse_timer.setSingleShot(True)
+        self._collapse_timer.setInterval(150)
+        self._collapse_timer.timeout.connect(self._collapse_if_outside)
         self.setFixedSize(*self._full_size)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAcceptDrops(True)
         self._drag_origin = None
         self.setStyleSheet(
             "QMainWindow { background: transparent; }"
-            "QWidget#panel { background: #0b1220; border-radius: 12px; color: #e5e7eb; }"
+            "QWidget#panel {"
+            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #141c2f, stop:1 #0b1020);"
+            "  border: 1px solid #2a3854; border-radius: 16px; color: #e5e7eb;"
+            "}"
+            "QLabel#brand { color: #cbd5e1; font-size: 11px; font-weight: 600; background: transparent; }"
+            "QLabel#hint { color: #64748b; font-size: 12px; background: transparent; }"
             "QScrollArea { border: none; background: transparent; }"
+            "QToolButton#chrome {"
+            "  color: #e2e8f0; background: #1c2740; border: none; border-radius: 10px; font-size: 14px;"
+            "}"
+            "QToolButton#chrome:hover { background: #2a3a58; }"
         )
 
         central = QWidget()
         central.setObjectName("panel")
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(8, 6, 8, 6)
-        root.setSpacing(4)
+        root.setContentsMargins(12, 8, 12, 10)
+        root.setSpacing(6)
 
         top = QHBoxLayout()
+        self._brand = QLabel("ascent")
+        self._brand.setObjectName("brand")
+        top.addWidget(self._brand)
         top.addStretch(1)
         self._dot = QLabel()
         self._dot.setFixedSize(8, 8)
         self._set_dot("off")
         self._min_button = QToolButton()
+        self._min_button.setObjectName("chrome")
         self._min_button.setText("–")
         self._min_button.setToolTip("Minimize")
         self._min_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._min_button.setFixedSize(18, 18)
-        self._min_button.setStyleSheet(
-            "QToolButton { color: #e5e7eb; background: transparent; border: none; font-size: 16px; }"
-        )
+        self._min_button.setFixedSize(20, 20)
+        self._min_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._min_button.clicked.connect(self._toggle_minimized)
         top.addWidget(self._dot)
         top.addWidget(self._min_button)
@@ -232,11 +261,15 @@ class Overlay(QMainWindow):
         self._slot_host = QWidget()
         self._slot = QVBoxLayout(self._slot_host)
         self._slot.setContentsMargins(0, 0, 0, 0)
+        self._empty = QLabel("Waiting for a picture")
+        self._empty.setObjectName("hint")
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._slot.addWidget(self._empty)
         root.addWidget(self._slot_host, 1)
 
         self._reel_scroll = QScrollArea()
         self._reel_scroll.setWidgetResizable(True)
-        self._reel_scroll.setFixedHeight(34)
+        self._reel_scroll.setFixedHeight(40)
         self._reel_scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._reel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._reel_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -248,6 +281,7 @@ class Overlay(QMainWindow):
         reel_opacity.setOpacity(0.4)
         self._reel.setGraphicsEffect(reel_opacity)
         self._reel_scroll.setWidget(self._reel)
+        self._reel_scroll.hide()
         root.addWidget(self._reel_scroll)
 
         app = QApplication.instance()
@@ -262,6 +296,17 @@ class Overlay(QMainWindow):
         super().showEvent(event)
         from gui.app import exclude_from_capture
         exclude_from_capture(self)
+
+    def enterEvent(self, event) -> None:
+        self._collapse_timer.stop()
+        if self._minimized:
+            self._apply_chrome(expanded=True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._minimized and self._drag_origin is None:
+            self._collapse_timer.start()
+        super().leaveEvent(event)
 
     def upsert(self, suggestion: dict) -> None:
         suggestion_id = suggestion.get("id")
@@ -428,17 +473,22 @@ class Overlay(QMainWindow):
         for index, (_full, thumb, caption) in enumerate(self._history):
             button = QToolButton()
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.setFixedSize(44, 26)
+            button.setFixedSize(52, 30)
             button.setIconSize(button.size())
             button.setToolTip(caption)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setIcon(QIcon(QPixmap.fromImage(thumb)))
-            border = "#e2e8f0" if index == self._history_index else "transparent"
+            border = "#7dd3fc" if index == self._history_index else "#1e293b"
             button.setStyleSheet(
-                f"QToolButton {{ border: 2px solid {border}; border-radius: 4px; background: #0f172a; }}"
+                "QToolButton {"
+                f"border: 2px solid {border}; border-radius: 6px; background: #0b1220; padding: 0;"
+                "}"
+                "QToolButton:hover { border-color: #e2e8f0; }"
             )
             button.clicked.connect(lambda _checked=False, i=index: self._show_history(i))
             self._reel_layout.insertWidget(index, button)
             self._reel_buttons.append(button)
+        self._sync_reel()
 
     def _stage_local(self, image: QImage, caption: str) -> None:
         self._push_history(image, image, caption)
@@ -456,6 +506,9 @@ class Overlay(QMainWindow):
         if newest is not None:
             self._slot.addWidget(newest)
             newest.show()
+        else:
+            self._slot.addWidget(self._empty)
+            self._empty.show()
 
     def _toggle_shutter(self) -> None:
         blank = self._canvas.toggle_shutter()
@@ -470,17 +523,31 @@ class Overlay(QMainWindow):
         self._set_dot("on" if connected else "off")
 
     def _toggle_minimized(self) -> None:
+        self._collapse_timer.stop()
         self._minimized = not self._minimized
-        self._slot_host.setVisible(not self._minimized)
-        self._reel_scroll.setVisible(not self._minimized)
+        self._apply_chrome(expanded=not self._minimized)
+
+    def _apply_chrome(self, expanded: bool) -> None:
+        self._chrome_open = expanded
+        self._slot_host.setVisible(expanded)
+        self._sync_reel()
+        self.setFixedSize(*(self._full_size if expanded else self._pill_size))
         if self._minimized:
-            self.setFixedSize(120, 28)
             self._min_button.setText("+")
             self._min_button.setToolTip("Restore")
         else:
-            self.setFixedSize(*self._full_size)
             self._min_button.setText("–")
             self._min_button.setToolTip("Minimize")
+
+    def _sync_reel(self) -> None:
+        self._reel_scroll.setVisible(self._chrome_open and bool(self._history))
+
+    def _collapse_if_outside(self) -> None:
+        if not self._minimized or self._drag_origin is not None:
+            return
+        if self.frameGeometry().contains(QCursor.pos()):
+            return
+        self._apply_chrome(expanded=False)
 
     def _set_dot(self, state: str) -> None:
         color = {"on": "#34d399", "off": "#64748b", "blank": "#fbbf24"}[state]
@@ -500,6 +567,8 @@ class Overlay(QMainWindow):
             return True
         elif event.type() == QEvent.Type.MouseButtonRelease:
             self._drag_origin = None
+            if self._minimized and not self.frameGeometry().contains(QCursor.pos()):
+                self._collapse_timer.start()
         return super().eventFilter(obj, event)
 
     def _is_descendant(self, obj) -> bool:

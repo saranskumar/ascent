@@ -3,3 +3,6 @@ pillow          # image processing (engine) + mock_engine placeholders
 PySide6         # co-pilot overlay and canvas
 google-genai    # engine LLM (Gemini); falls back to a local llama.cpp server
 ddgs            # engine keyless image search (DuckDuckGo)
+numpy           # transcript service (imported at startup, including Meetily mode)
+sounddevice     # microphone fallback
+faster-whisper  # microphone fallback (local Whisper)

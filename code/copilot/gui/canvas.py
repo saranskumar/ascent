@@ -1,7 +1,7 @@
 """Shareable canvas. The image is fitted, centred, and crossfaded. The shutter is instant."""
 
 from PySide6.QtCore import QParallelAnimationGroup, QPropertyAnimation, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QRadialGradient
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QGridLayout, QLabel, QMainWindow, QWidget
 
 FADE_MS = 200
@@ -28,6 +28,38 @@ class FitLabel(QLabel):
         painter.drawImage(x, y, scaled)
 
 
+class Stage(QWidget):
+    """Dark field behind the shared image. A faint mark shows until the first picture."""
+
+    def __init__(self):
+        super().__init__()
+        self._mark = True
+
+    def set_mark(self, visible: bool) -> None:
+        if self._mark == visible:
+            return
+        self._mark = visible
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#0b1220"))
+        glow = QRadialGradient(self.rect().center(), max(self.width(), self.height()) * 0.55)
+        glow.setColorAt(0.0, QColor(30, 41, 59, 150))
+        glow.setColorAt(1.0, QColor(11, 18, 32, 0))
+        painter.fillRect(self.rect(), glow)
+        if not self._mark:
+            return
+        painter.setPen(QColor(148, 163, 184, 110))
+        font = QFont(self.font())
+        font.setPixelSize(15)
+        font.setWeight(QFont.Weight.DemiBold)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 6)
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "ASCENT")
+
+
 class Canvas(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -37,8 +69,8 @@ class Canvas(QMainWindow):
         self._top_is_a = False
         self._fade = None
 
-        central = QWidget()
-        central.setStyleSheet("background: #0f172a;")
+        central = Stage()
+        self._stage = central
         self.setCentralWidget(central)
         grid = QGridLayout(central)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -53,7 +85,7 @@ class Canvas(QMainWindow):
         self._b.setGraphicsEffect(self._fx_b)
 
         self._shutter = QWidget()
-        self._shutter.setStyleSheet("background: #0f172a;")
+        self._shutter.setStyleSheet("background: #0b1220;")
         self._shutter.hide()
 
         grid.addWidget(self._a, 0, 0)
@@ -70,6 +102,7 @@ class Canvas(QMainWindow):
         incoming_fx = self._fx_b if self._top_is_a else self._fx_a
         outgoing_fx = self._fx_a if self._top_is_a else self._fx_b
         incoming.set_image(image)
+        self._stage.set_mark(False)
         self._top_is_a = not self._top_is_a
         if self._fade is not None:
             self._fade.stop()
