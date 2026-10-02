@@ -56,6 +56,16 @@ Sources: [API reference](https://docs.meetily.ai/developers/api-reference) · [E
 - `transcription.completed` / `transcript-ready`: **no producer**; don't rely on it.
 - Payloads are thin: `{schema_version, event_id, event, occurred_at, resource:{kind,id}, delivery_id}`. Always fetch content by id.
 
+### Verified in the live workflow test (Oct 2, Pro 1.11.0)
+
+- **Webhook delivery works to `http://127.0.0.1:<port>`**, after adding the host under *Settings > Integrations > Advanced > Outgoing (webhooks) > Local targets* (else `400 bad_request: url host is not allowed (loopback/private)`) and allowing the destination (`approval_state: pending` → `allowed`). Registration needs only `read` (the loopback token). `hmac_secret` is shown once.
+- **Signature:** `X-Meetily-Signature: sha256=<hex HMAC-SHA256 of "{X-Meetily-Timestamp}.{raw body}">`. Meetily gives a delivery 5 s; `at-least-once` retries up to 6 attempts. `GET /v1/webhooks/{id}/deliveries` shows status per delivery.
+- `recording.started` / `recording.stopped` arrive within a second; `resource.id` is the meeting id.
+- **`summary.completed` only fires when Meetily generates its own summary.** Recordings started via the API (and our earlier "New Meeting" ones) got **no summary at all**, so nothing fires. There is no auto-summary setting in `/v1/config/*`. `POST .../summary/regenerate` does produce one (and the event).
+- **Our `PUT summary` does not fire `summary.completed`.**
+- **Meetily reformats the Markdown it stores** (pads table columns, `*   ` → `* `, blank lines between list items), so compare summaries by content, not bytes. It also stores the body without the `# Title` line.
+- **A meeting's `created_at` is when the recording stopped** (it's saved then), not when it started. Use `recording.started`'s `occurred_at` for timing.
+
 ## What the hackathon expects of a workflow
 
 From `drops/Meetily_Workflows.pdf` and `guidelines/00-track-1-brief-and-rules.md`:

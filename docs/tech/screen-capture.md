@@ -24,6 +24,7 @@ What it does **not** do: live capture, real content-area detection inside a meet
 ## Capture
 
 - **Start/stop** on Meetily's `recording.started` / `recording.stopped` webhooks. Use the events' `occurred_at` so screenshot times line up with Meetily's `audio_start_time`.
+- **Window picker (decided):** a **small GUI** listing open windows with thumbnails; the user picks once per meeting.
 - **Window capture:** Windows Graphics Capture (`windows-capture` Python package) captures **one chosen window** even when covered, never notifications or other apps.
 - **Suggested option:** record the chosen window as a **low-frame-rate video (1 fps)** during the meeting (a few MB per minute), then run the lecture-to-notes-style extractor on it after `recording.stopped`. This lets us reuse their code almost directly and tune offline. Delete the video after processing. *(Not yet decided.)*
 
@@ -41,7 +42,7 @@ Gotcha: when **presenting in Google Meet**, the Meet tab shows a "You are presen
 ## Selection rules (decided)
 
 - **Minimum dwell ~3 s:** drop screens shown for less than that, **after** merging bullet-by-bullet slides (so a slide that builds over 20 s counts as one 20 s slide).
-- **Diagrams:** if OCR finds very little text, mark it as a diagram and send **only those** to the small local vision model for a description.
+- **Diagrams:** if OCR finds very little text, mark it as a diagram. Diagram images are sent to **Gemini** (decided Oct 2); everything else goes as OCR text only.
 - **Video / animation on screen:** if the content area changes every second for more than ~5 s, keep one representative frame and mark it as `video`.
 - **Every screenshot records start AND end time** (needed for the transcript window).
 

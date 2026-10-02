@@ -17,7 +17,7 @@
 | **3. Patch Meetily Community** | add a listener to the internal `transcript-update` event (`audio/transcription/worker.rs`) that serves segments on a local endpoint (e.g. SSE at `127.0.0.1:<port>/live`): ~50–80 lines of Rust using the existing `tokio` dependency | yes | yes (open-source build) | **Organisers OK'd modifying the open-source code.** The real cost is building Meetily from source on Windows (Rust, Node, whisper.cpp, GPU), which could take hours. Could be offered upstream as "live transcript API" product feedback. |
 | **4. Post-meeting "visual recap"** | after the meeting, a local LLM picks 2–3 concepts that most need a picture → generate a **Mermaid diagram** of the discussed process/architecture, or pull from the team's local image folder, and add it to the summary | yes | yes (fits the workflow model) | Not live anymore |
 
-Cloud transcription (e.g. Groq Whisper) was ruled out: **everything must run locally**, matching Meetily's privacy-first positioning.
+Transcription should stay local (privacy-first, like Meetily). Update Oct 2: **LLM APIs (Gemini) are allowed for summarisation/LLM steps** where needed.
 
 ## Images, if we build it
 

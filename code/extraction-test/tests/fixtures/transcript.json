@@ -1,0 +1,16 @@
+{
+  "meeting_id": "fixture",
+  "title": "Fixture meeting (matches tests/synthetic.py)",
+  "segments": [
+    {"id": "1", "text": "Okay everyone, welcome to the Atlas kickoff. Thanks for joining.", "timestamp": "t", "audio_start_time": 1.0, "audio_end_time": 6.0},
+    {"id": "2", "text": "Sara will own the vendor evaluation and send a shortlist by next Friday.", "timestamp": "t", "audio_start_time": 7.0, "audio_end_time": 11.0},
+    {"id": "3", "text": "Now, last quarter. As you can see, this one went up a lot, revenue is the big story.", "timestamp": "t", "audio_start_time": 13.0, "audio_end_time": 18.0},
+    {"id": "4", "text": "Churn dropped too, and that is thanks to the support team. We are also hiring.", "timestamp": "t", "audio_start_time": 19.0, "audio_end_time": 25.0},
+    {"id": "5", "text": "Quick aside, please do not forget your timesheets.", "timestamp": "t", "audio_start_time": 25.0, "audio_end_time": 27.0},
+    {"id": "6", "text": "So the architecture is roughly this. The two boxes on top feed the middle layer, and everything lands in the bottom node.", "timestamp": "t", "audio_start_time": 28.0, "audio_end_time": 36.0},
+    {"id": "7", "text": "We decided to keep the bottom node as a single service for now.", "timestamp": "t", "audio_start_time": 37.0, "audio_end_time": 40.0},
+    {"id": "8", "text": "Regarding the handbook, the only policy that matters this month is that backups run nightly.", "timestamp": "t", "audio_start_time": 41.0, "audio_end_time": 48.0},
+    {"id": "9", "text": "Marcus, can you check the interns have mentors by the end of the month?", "timestamp": "t", "audio_start_time": 53.0, "audio_end_time": 58.0},
+    {"id": "10", "text": "Great, that is all for today, thanks everyone.", "timestamp": "t", "audio_start_time": 61.0, "audio_end_time": 64.0}
+  ]
+}
