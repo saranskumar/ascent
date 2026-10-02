@@ -1,0 +1,24 @@
+# Meettly Pro Functionality and Workflow Discussion
+
+Oct 2 · 11:06 - 11:13
+
+# Participants
+Meetily annan
+Member 1
+Member 2
+
+# Summary
+The discussion revolves around the capabilities of Meettly Pro, specifically its CLI, HTTP API, and webhook functionality for transcription and summary handling. The core concept of Meettly workflow is highlighted as crucial for building applications. A key point of contention is whether Meettly Pro's functionalities, particularly the workflow, are available in the open-source version or solely in Meettly Pro. The conversation also touches upon a secondary feature: a presentation assistant that provides visual context during live presentations by searching for images or diagrams related to spoken words.
+
+# Main Topics
+## Meettly Pro Core Functionality
+Meettly Pro offers CLI, HTTP API, and webhook functionality. It handles transcription and summary generation. The application's power is derived from these features, with documentation available to guide integration. The Meettly workflow is considered a core concept for building applications, but it is exclusively available in Meettly Pro, not the opensource version.
+
+## Meettly Pro vs. Open Source
+A significant point of discussion is the distinction between Meettly Pro and its opensource counterpart. Meettly Pro offers advanced features like workflowbased building, which are not available in the opensource version. The implication is that users need to build their applications based on the Meettly Pro workflow. The documentation provided by Meettly includes details on the available API endpoints and features for proper integration.
+
+## Presentation Assistant Feature
+A secondary feature discussed is a presentation assistant. This tool is designed to be helpful during live presentations. When a speaker presents without preprepared slides, the assistant can search for and display relevant images or diagrams from Google based on the spoken words or concepts. The process involves live transcription, identifying objects or concepts, and then searching for corresponding visuals to display on screen. The speaker can then select from multiple options to show the most relevant image.
+
+## Integration Challenges and Limitations
+There are challenges in integrating external features or custom functionalities. The current Meettly Pro endpoints are primarily available at the end of a meeting, which limits live injection of custom content. This means that if a user wants to enhance summaries or transcripts with other tools, they might have to discard the existing pipeline and rebuild it. The discussion highlights that direct injection of custom functionalities into the core of Meettly Pro might not be straightforward, implying a need to work within the provided connectivity features.
