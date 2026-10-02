@@ -240,7 +240,7 @@ function step(r, key, label, html) {
   }
   $(".v", s).innerHTML = html;
 }
-const STATUS_CLASS = st => st === "picked" ? "picked" : /failed|readable|blank|duplicate|small|stock|slow/.test(st) ? "fail" : "skip";
+const STATUS_CLASS = st => st.startsWith("picked") ? "picked" : /failed|readable|blank|duplicate|small|stock|slow/.test(st) ? "fail" : "skip";
 
 function onEvent(e) {
   if (!e.run) {
@@ -294,9 +294,9 @@ function onEvent(e) {
     case "fetch": {
       const tally = {};
       e.candidates.forEach(c => tally[c.status] = (tally[c.status] || 0) + 1);
-      const order = ["picked", "spare (enough already)", "same site as a picked one", "duplicate", "download failed", "too slow, skipped", "not a readable image", "blank", "too small or banner", "stock / blocked site", "not tried"];
+      const order = ["picked", "picked (fallback: was rejected)", "spare (enough already)", "same site as a picked one", "duplicate", "download failed", "too slow, skipped", "not a readable image", "blank", "too small or banner", "stock / blocked site", "not tried"];
       const tallyTxt = Object.entries(tally).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
-        .map(([k, v]) => `<span class="${k === "picked" ? "ok" : ""}">${v} ${esc(k)}</span>`).join(" · ");
+        .map(([k, v]) => `<span class="${k.startsWith("picked") ? "ok" : ""}">${v} ${esc(k)}</span>`).join(" · ");
       const tiles = e.candidates.map(c => `<a class="cand ${STATUS_CLASS(c.status)}" href="${esc(c.page || c.url)}" target="_blank" rel="noopener"
           title="${esc(c.title)}\n${esc(c.domain)} · ${c.provider}${c.w ? ` · ${c.w}×${c.h}` : ""}\n→ ${esc(c.status)}">
           <img loading="lazy" referrerpolicy="no-referrer" src="${esc(c.thumb || c.url)}" onerror="this.style.display='none'"><span class="s">${esc(c.status)}</span></a>`).join("");

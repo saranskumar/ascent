@@ -34,12 +34,17 @@ class Candidate:
         return urlparse(self.page or self.url).netloc.lower().removeprefix("www.")
 
 
+# Stock sites dominate generic queries ("mango photo" -> all dreamstime) and fetch.py drops them,
+# so ask the search engines not to return them in the first place.
+NO_STOCK = " ".join(f"-site:{d}" for d in ("dreamstime.com", "freepik.com", "shutterstock.com", "alamy.com"))
+
+
 def serper(query: str, n: int) -> list[Candidate]:
     key = os.environ.get("SERPER_API_KEY", "").strip()
     if not key:
         raise RuntimeError("SERPER_API_KEY not set")
     req = urllib.request.Request("https://google.serper.dev/images",
-                                 data=json.dumps({"q": query, "num": n}).encode(),
+                                 data=json.dumps({"q": f"{query} {NO_STOCK}", "num": n}).encode(),
                                  headers={"X-API-KEY": key, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=8) as r:
         d = json.load(r)
@@ -51,7 +56,9 @@ def serper(query: str, n: int) -> list[Candidate]:
 
 def ddg(query: str, n: int) -> list[Candidate]:
     from ddgs import DDGS
-    rows = DDGS(timeout=8).images(query, max_results=n, safesearch="moderate")
+    rows = DDGS(timeout=8).images(f"{query} {NO_STOCK}", max_results=n, safesearch="moderate")
+    if len(rows) < 5:       # too many -site: operators sometimes starve ddg; fall back to the plain query
+        rows = DDGS(timeout=8).images(query, max_results=n, safesearch="moderate")
     return [Candidate(url=r["image"], page=r.get("url", ""), title=r.get("title", ""),
                       width=int(r.get("width") or 0), height=int(r.get("height") or 0),
                       thumb=r.get("thumbnail", ""), provider="ddg")

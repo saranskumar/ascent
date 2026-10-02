@@ -127,6 +127,20 @@ async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str
             pool_idx.append(i)
     if report is not None:
         report.extend(recs)
+    picked = await _run(cands, recs, pool_idx, kind, out_dir, name, want, seen_hashes, soft, timeout)
+    if picked:
+        return picked
+    # Nothing acceptable: better a watermarked or smallish image the host can judge than nothing.
+    # Retry with the candidates we rejected up front (stock sites, small sizes; never banners).
+    rest = [i for i, r in enumerate(recs)
+            if r["status"] == "stock / blocked site"
+            or (r["status"] == "too small or banner" and max(cands[i].width, cands[i].height) >= 300
+                and max(cands[i].width, cands[i].height) <= 2.5 * max(1, min(cands[i].width, cands[i].height)))][:try_n]
+    return await _run(cands, recs, rest, kind, out_dir, name, want, seen_hashes, soft, timeout, fallback=True)
+
+
+async def _run(cands, recs, pool_idx, kind, out_dir, name, want, seen_hashes, soft, timeout,
+               fallback: bool = False) -> list[Fetched]:
     if not pool_idx:
         return []
     pool = [cands[i] for i in pool_idx]
@@ -169,7 +183,7 @@ async def fetch_best(cands: list[Candidate], kind: str, out_dir: Path, name: str
         await asyncio.to_thread(_save, im, full, thumb)
         w, hh = im.size if max(im.size) <= FULL_MAX else _fit(im.size, FULL_MAX)
         picked.append(Fetched(c, full, thumb, w, hh, h))
-        rec["status"] = "picked"
+        rec["status"] = "picked (fallback: was rejected)" if fallback else "picked"
         rec["w"], rec["h"] = im.size
         domains.add(c.domain)
         hashes.append(h)
