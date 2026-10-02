@@ -21,13 +21,17 @@ import hmac
 import json
 import queue
 import re
+import subprocess
+import sys
 import threading
 import time
 import traceback
+import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .meetily_client import MeetilyClient, MeetilyError, MeetilyOffline
+from .writeback import IN_PROGRESS, fingerprint, split_title, summary_text
 
 SIGNATURE_HEADER = "X-Meetily-Signature"
 TIMESTAMP_HEADER = "X-Meetily-Timestamp"
@@ -220,8 +224,16 @@ class Subscription:
 class Automation:
     """Owns the subscription, the HTTP entry point and the worker. `app` is server.App."""
 
-    def __init__(self, app, url: str, client_factory=MeetilyClient, sleep=time.sleep):
+    def __init__(self, app, url: str, client_factory=MeetilyClient, sleep=time.sleep, picker=None, prompter=None):
         self.app = app
+        self.base_url = url.rsplit("/webhook", 1)[0]
+        self.picker = picker or self._run_picker_process     # picker(watch) -> {"hwnd"..} | {"skip": True}
+        self._pick_thread: threading.Thread | None = None
+        self._pick_proc: subprocess.Popen | None = None
+        self._pick_cancel = threading.Event()
+        self.prompter = prompter or self._run_prompt         # prompter(kind, title=, screens=) -> action
+        self._threads: list[threading.Thread] = []
+        self._asking: set[str] = set()                       # runs with a popup question open
         self.store = EventStore(app.data / "events")
         self.sub = Subscription(app.data, url, client_factory)
         self.client_factory = client_factory
@@ -331,7 +343,7 @@ class Automation:
                 log(f"{what}: {e.code or e.status or 'offline'}, retrying in {wait}s")
                 self.sleep(wait)
 
-    # recording.started -> start capturing the remembered window
+    # recording.started -> ask which window to capture (popup), or use the remembered one
     def on_started(self, mid: str | None, occurred_at: str | None, log) -> str:
         app = self.app
         if not mid:
@@ -340,40 +352,204 @@ class Automation:
         if app.recorder is not None and app.recorder.running:
             app.attach_recording(app.capture_run, mid, occurred_at)
             return f"already capturing ({app.capture_run}); linked it to {mid}"
-        if not app.settings()["auto_capture"]:
+        settings = app.settings()
+        if not settings["auto_capture"]:
             return "auto capture is off in Settings"
+        if settings.get("ask_window"):
+            self._cancel_picker()
+            self._pick_cancel.clear()
+            self._pick_thread = threading.Thread(target=self._pick_and_capture, args=(mid, occurred_at, log),
+                                                 daemon=True, name="vcs-picker")
+            self._pick_thread.start()
+            return "asked which window to capture (popup on screen)"
         hwnd = app.find_watch_window()
         if hwnd is None:
             return "no window to watch: pick one once on the New run page"
+        self._start_capture(hwnd, mid, occurred_at, log)
+        return f"capture started ({app.capture_run})"
+
+    def _start_capture(self, hwnd: int, mid, occurred_at, log):
+        app = self.app
         app.start_capture(hwnd)
         app.attach_recording(app.capture_run, mid, occurred_at)
         log(f"capturing '{app.recorder.title}' for {mid}")
-        return f"capture started ({app.capture_run})"
+
+    def _pick_and_capture(self, mid, occurred_at, log):
+        """Worker thread: wait for the popup's answer, then start capturing. The event worker
+        stays free, so `recording.stopped` can cancel us while the popup is still open."""
+        watch = self.app.settings().get("watch") or {}
+        try:
+            choice = self.picker(watch)
+        except Exception as e:  # noqa: BLE001 - a broken popup must not lose the capture
+            log(f"window popup failed ({type(e).__name__}: {e}); using the remembered window")
+            choice = {"fallback": True}
+        if self._pick_cancel.is_set():
+            log("recording ended before a window was picked; nothing captured")
+            return
+        if choice.get("skip"):
+            log("skipped: this recording is not screen-captured")
+            return
+        hwnd = choice.get("hwnd") or (self.app.find_watch_window() if choice.get("fallback") else None)
+        if not hwnd:
+            log("no window to capture: pick one on the New run page")
+            return
+        try:
+            self._start_capture(int(hwnd), mid, occurred_at, log)
+        except Exception as e:  # noqa: BLE001
+            log(f"couldn't start the capture: {e}")
+
+    def _cancel_picker(self):
+        """Close the popup if it is still open (recording ended, or a new one started)."""
+        t = self._pick_thread
+        if t is None or not t.is_alive():
+            return
+        self._pick_cancel.set()
+        proc = self._pick_proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+        t.join(10)
+
+    def _run_picker_process(self, watch: dict) -> dict:
+        cmd = [sys.executable, "-m", "vcs.picker", "--last-title", watch.get("title") or "",
+               "--last-process", watch.get("process") or ""]
+        root = Path(__file__).resolve().parents[1]
+        proc = self._pick_proc = subprocess.Popen(cmd, cwd=str(root), stdout=subprocess.PIPE,
+                                                  stderr=subprocess.PIPE, text=True)
+        out, err = proc.communicate()
+        if self._pick_cancel.is_set():
+            return {"skip": True}
+        lines = [ln for ln in (out or "").splitlines() if ln.strip()]
+        if proc.returncode != 0 or not lines:
+            raise RuntimeError((err or "").strip().splitlines()[-1] if (err or "").strip() else "no answer")
+        return json.loads(lines[-1])
 
 
     # recording.stopped (or failed) -> stop capture, extract, then summarize + write back
     def on_ended(self, mid: str | None, kind: str, log) -> str:
         app = self.app
+        self._cancel_picker()
         if app.recorder is None:
             return "no capture running"
         run = app.capture_run
         linked = app.meta(app.run_dir(run)).get("recording_meeting_id")
         if mid and linked and linked != mid:
             return f"capture {run} belongs to {linked}, not {mid}; left running"
-        res = app.stop_capture()
+        mid = mid or linked
+        # Popup first: it takes a moment to start, so open it before stopping the capture and
+        # extracting; the answer is only needed once the screenshots are ready.
+        early = kind == "recording.stopped" and bool(mid) and bool(app.settings().get("ask_generate"))
+        box: dict = {}
+        ready = threading.Event()
+        if early:
+            self._spawn(self._ask_generate, run, mid, log, box, ready)
+        try:
+            res = app.stop_capture()
+        except Exception as e:  # noqa: BLE001 - tell the open popup, then fail the event
+            box["error"] = str(e)
+            ready.set()
+            raise
+        box["job"] = res["job"]
+        ready.set()
         log(f"stopped capture after {res['seconds']:.0f}s; extracting screenshots")
+        if early:
+            return f"{run}: capture stopped; popup asks whether to generate (screenshots extract meanwhile)"
         job = app.wait_job(res["job"])
         if job["status"] != "done":
             raise RuntimeError(f"extraction failed: {job['error']}")
         log(job["log"][-2] if len(job["log"]) > 1 else "screenshots extracted")
-        mid = mid or linked
         if kind != "recording.stopped":
             return f"{run}: recording ended with {kind}; screenshots kept, no summary"
         if not mid:
             return f"{run}: screenshots extracted; no meeting id to summarise"
         # Decided Oct 2 (live test): Meetily only sends summary.completed when it generates its
-        # own summary, which hands-off recordings don't get, so we write on stop and guard after.
+        # own summary, which hands-off recordings don't get, so we act on stop and guard after.
         return self.summarize_and_publish(run, mid, log)
+
+    # ---- popups after the recording (run in their own threads so the event worker stays free)
+    def _spawn(self, fn, *args):
+        t = threading.Thread(target=fn, args=args, daemon=True, name="vcs-popup")
+        self._threads = [x for x in self._threads if x.is_alive()] + [t]
+        t.start()
+
+    def _meeting_title(self, mid: str) -> str:
+        try:
+            return (self.client_factory().get_meeting(mid) or {}).get("title") or ""
+        except Exception:  # noqa: BLE001 - only for the popup text
+            return ""
+
+    def _ask_generate(self, run: str, mid: str, log, box: dict | None = None,
+                      ready: threading.Event | None = None):
+        """Ask "generate the summary?". With `box`/`ready` the popup opens while the capture is
+        still being stopped and extracted; the screenshots are awaited after the answer."""
+        screens = -1                                  # unknown yet when asking early
+        if box is None:
+            try:
+                screens = len(json.loads((self.app.run_dir(run) / "screenshots.json").read_text("utf-8"))
+                              .get("screenshots") or [])
+            except (OSError, ValueError):
+                screens = 0
+        try:
+            action = self.prompter("generate", title=self._meeting_title(mid), screens=screens)
+        except Exception as e:  # noqa: BLE001 - a broken popup must not lose the summary
+            log(f"summary popup failed ({type(e).__name__}: {e}); generating anyway")
+            action = "generate"
+        if box is not None:
+            ready.wait(600)
+            if box.get("error"):
+                log(f"nothing to summarise: {box['error']}")
+                return
+            job = self.app.wait_job(box["job"])
+            if job["status"] != "done":
+                log(f"extraction failed: {job['error']}")
+                return
+            log(job["log"][-2] if len(job["log"]) > 1 else "screenshots extracted")
+        if action != "generate":
+            log(f"not generating now; use Generate summary on the run page ({run})")
+            return
+        try:
+            log(self.summarize_and_publish(run, mid, log))
+        except Exception as e:  # noqa: BLE001
+            log(f"summary failed: {type(e).__name__}: {e}")
+
+    def _popup_overwrite(self, run: str, mid: str, current: str, title: str, log):
+        """Meetily already has a summary: ask Replace / Keep in a popup (the web dialog stays as
+        the fallback, since the pending file is what both read and clear)."""
+        try:
+            try:
+                action = self.prompter("overwrite", title=title or "", screens=0)
+            except Exception as e:  # noqa: BLE001
+                log(f"overwrite popup failed ({type(e).__name__}: {e}); left for the web UI")
+                action = "later"
+            pending = self.app.run_dir(run) / "pending_overwrite.json"
+            if not pending.exists():
+                return                              # already answered in the web UI
+            if action == "replace":
+                job = self.app.wait_job(self.app.start_publish(run, mid))
+                if job["status"] == "done":
+                    self._clear_pending(run)
+                    log("replaced Meetily's summary with ours (its version is backed up)")
+                else:
+                    log(f"replace failed: {job['error']}; still waiting in the web UI")
+            elif action == "keep":
+                (self.app.run_dir(run) / "kept_meetily.json").write_text(json.dumps(
+                    {"meeting_id": mid, "fingerprint": fingerprint(current), "at": now_iso()}), "utf-8")
+                self._clear_pending(run)
+                log("kept Meetily's summary")
+            else:
+                log("left for later; the question is also waiting in the web UI")
+                self._open_web(run)
+        finally:
+            self._asking.discard(run)
+
+    def _run_prompt(self, kind: str, title: str = "", screens: int = 0) -> str:
+        cmd = [sys.executable, "-m", "vcs.prompt", kind, "--title", title, "--screens", str(screens)]
+        proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[1]), capture_output=True,
+                              text=True)
+        lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+        if proc.returncode != 0 or not lines:
+            raise RuntimeError((proc.stderr or "").strip().splitlines()[-1] if (proc.stderr or "").strip()
+                               else "no answer")
+        return json.loads(lines[-1]).get("action", "")
 
     # summary.completed / summary.failed -> keep our summary in place
     def on_summary(self, mid: str | None, kind: str, log) -> str:
@@ -387,7 +563,7 @@ class Automation:
         if pub:
             if self._ours_is_current(mid, pub):
                 return "Meetily shows our summary; nothing to do"
-            log("Meetily replaced our summary; putting ours back (its version is backed up)")
+            log("Meetily replaced our summary")
             return self._publish(run, mid, log)
         if self._summary_ready(run, mid):
             log("our summary is ready but wasn't written yet; writing it now")
@@ -411,19 +587,95 @@ class Automation:
         return self._publish(run, mid, log)
 
     def _publish(self, run: str, mid: str, log) -> str:
+        """Write our summary into Meetily when it has none; when it already has a different one,
+        ask in the web UI instead of overwriting."""
         app = self.app
         if not app.settings()["auto_publish"]:
             return f"summary ready in {run}; auto write-back is off, write it from the run page"
-        if not self.client_factory().write_status()["ok"]:
+        client = self.client_factory()
+        if not client.write_status()["ok"]:
             return f"summary ready in {run}; no usable write key, so not written to Meetily"
+        status, current = self._meetily_summary(client, mid)
+        if status in IN_PROGRESS:
+            return (f"summary ready in {run}; Meetily is generating its own, ours is handled "
+                    f"when its summary event arrives")
+        if current.strip():
+            if self._same_as_ours(run, current):
+                self._clear_pending(run)
+                return "Meetily already shows our summary; nothing to do"
+            if self._kept_current(run, current):
+                return "you chose to keep Meetily's summary; left as is"
+            return self._ask_overwrite(run, mid, current, client, replaced=bool(self._published(run, mid)))
         job = app.wait_job(app.start_publish(run, mid))
         if job["status"] != "done":
             err = job["error"] or ""
             if "still generating" in err:
-                return (f"summary ready in {run}; Meetily is generating its own, ours goes in "
-                        f"when its summary event arrives")
+                return (f"summary ready in {run}; Meetily is generating its own, ours goes "
+                        f"in when its summary event arrives")
             raise RuntimeError(f"write-back failed: {err}")
-        return f"summary written to Meetily (backup in {run}/backups)"
+        self._clear_pending(run)
+        return f"summary written to Meetily (it had none; {run})"
+
+    @staticmethod
+    def _meetily_summary(client, mid: str) -> tuple[str, str]:
+        """(status, text) of Meetily's summary; ("", "") when it has none yet."""
+        try:
+            cur = client.get_summary(mid) or {}
+        except MeetilyError as e:
+            if e.status == 404:
+                return "", ""
+            raise
+        return str(cur.get("status") or "").lower(), summary_text(cur.get("result"))
+
+    def _ours_text(self, run: str) -> str:
+        f = self.app.run_dir(run) / "summary.md"
+        return split_title(f.read_text("utf-8"))[1] if f.exists() else ""
+
+    def _same_as_ours(self, run: str, current: str) -> bool:
+        ours = self._ours_text(run)
+        return bool(ours) and fingerprint(current) == fingerprint(ours)
+
+    def _kept_current(self, run: str, current: str) -> bool:
+        try:
+            kept = json.loads((self.app.run_dir(run) / "kept_meetily.json").read_text("utf-8"))
+        except (OSError, ValueError):
+            return False
+        return bool(kept.get("fingerprint")) and kept["fingerprint"] == fingerprint(current)
+
+    def _clear_pending(self, run: str):
+        (self.app.run_dir(run) / "pending_overwrite.json").unlink(missing_ok=True)
+
+    def _ask_overwrite(self, run: str, mid: str, current: str, client, replaced: bool) -> str:
+        """Park the decision for the web UI (GET /api/pending shows it as a dialog)."""
+        title = None
+        try:
+            title = (client.get_meeting(mid) or {}).get("title")
+        except Exception:  # noqa: BLE001 - the title is only a nicety
+            pass
+        (self.app.run_dir(run) / "pending_overwrite.json").write_text(json.dumps({
+            "run": run, "meeting_id": mid, "title": title, "reason": "replaced" if replaced else "existing",
+            "meetily_chars": len(current), "ours_chars": len(self._ours_text(run)), "at": now_iso(),
+        }, indent=2), "utf-8")
+        if self.app.settings().get("ask_generate"):
+            if run not in self._asking:
+                self._asking.add(run)
+                self._spawn(self._popup_overwrite, run, mid, current, title or "", lambda m: None)
+            where = "in a popup (also in the web UI)"
+        else:
+            self._open_web(run)
+            where = "in the web UI"
+        return (f"{run}: our summary is ready, but Meetily already has one. Waiting for you to choose "
+                f"{where}: overwrite it or keep it")
+
+    def _open_web(self, run: str):
+        """Nobody is looking at the UI? Open it on the run so the question isn't missed."""
+        app = self.app
+        if not app.settings().get("open_web_prompt") or getattr(app, "ui_recently_seen", lambda: True)():
+            return
+        try:
+            webbrowser.open(f"{self.base_url}/#/runs/{run}")
+        except Exception:  # noqa: BLE001
+            pass
 
     def _wait_transcript(self, mid: str, log, attempts: int = 4):
         """The transcript is persisted just after recording.stopped; wait until it has text."""

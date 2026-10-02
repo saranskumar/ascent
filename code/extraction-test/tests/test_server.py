@@ -74,3 +74,53 @@ def test_publish_guards(srv):
     (tmp / "r1" / "summary.meta.json").write_text(json.dumps({"meeting_id": "other"}))
     s, b = call(port, "POST", "/api/runs/r1/publish", H, body({"meeting_id": "m1", "confirm": True}))
     assert s == 400 and b"different transcript" in b
+
+
+def test_pending_overwrite_listed_and_resolved(srv, monkeypatch):
+    port, tmp = srv
+    H = {"X-VCS": "1"}
+    assert json.loads(call(port, "GET", "/api/pending")[1]) == {"pending": []}
+    assert Handler.app.ui_recently_seen()                       # the poll marks the UI as open
+    (tmp / "r1" / "pending_overwrite.json").write_text(json.dumps(
+        {"run": "r1", "meeting_id": "m1", "reason": "existing", "at": "2026-10-02T10:00:00+00:00"}))
+    pend = json.loads(call(port, "GET", "/api/pending")[1])["pending"]
+    assert [p["run"] for p in pend] == ["r1"]
+    # needs the custom header and a valid action
+    assert call(port, "POST", "/api/runs/r1/overwrite", body=b'{"action":"keep"}')[0] == 403
+    assert call(port, "POST", "/api/runs/r1/overwrite", H, b'{"action":"nope"}')[0] == 400
+    assert (tmp / "r1" / "pending_overwrite.json").exists()
+
+    class FakeMeetily:
+        def get_summary(self, mid):
+            return {"result": {"markdown": "Meetily's own"}}
+    monkeypatch.setattr("vcs.server.MeetilyClient", FakeMeetily)
+    assert call(port, "POST", "/api/runs/r1/overwrite", H, b'{"action":"keep"}')[0] == 200
+    assert not (tmp / "r1" / "pending_overwrite.json").exists()
+    from vcs.writeback import fingerprint
+    kept = json.loads((tmp / "r1" / "kept_meetily.json").read_text())
+    assert kept["fingerprint"] == fingerprint("Meetily's own")
+    assert call(port, "POST", "/api/runs/r1/overwrite", H, b'{"action":"keep"}')[0] == 404   # nothing pending
+
+
+def test_overwrite_runs_publish_and_clears_pending_only_on_success(srv, monkeypatch):
+    import time
+    port, tmp = srv
+    app = Handler.app
+    (tmp / "r1" / "pending_overwrite.json").write_text(json.dumps(
+        {"run": "r1", "meeting_id": "m1", "at": "x"}))
+    outcome = {"status": "failed"}
+    monkeypatch.setattr(app, "start_publish", lambda run, mid: {"id": "j1"})
+    monkeypatch.setattr(app, "wait_job", lambda job: dict(outcome))
+    assert call(port, "POST", "/api/runs/r1/overwrite", {"X-VCS": "1"}, b'{"action":"overwrite"}')[0] == 200
+    for _ in range(50):
+        if "r1" not in app._resolving:
+            break
+        time.sleep(0.05)
+    assert (tmp / "r1" / "pending_overwrite.json").exists()     # failed: the question stays
+    outcome["status"] = "done"
+    call(port, "POST", "/api/runs/r1/overwrite", {"X-VCS": "1"}, b'{"action":"overwrite"}')
+    for _ in range(50):
+        if not (tmp / "r1" / "pending_overwrite.json").exists():
+            break
+        time.sleep(0.05)
+    assert not (tmp / "r1" / "pending_overwrite.json").exists()

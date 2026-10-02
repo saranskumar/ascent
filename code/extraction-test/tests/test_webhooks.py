@@ -105,7 +105,13 @@ class FakeClient:
         return {"segments": [{"text": "hello", "audio_start_time": 1.0}]}
 
     def get_summary(self, mid):
-        return {"status": "completed", "result": {"markdown": self.s.get("meetily_summary", "")}}
+        if self.s.get("meetily_summary") is None and self.s.get("no_summary"):
+            raise MeetilyError(404, {"error": {"code": "not_found"}})
+        return {"status": self.s.get("summary_status", "completed"),
+                "result": {"markdown": self.s.get("meetily_summary") or ""}}
+
+    def get_meeting(self, mid):
+        return {"title": "Weekly sync"}
 
 
 class FakeRecorder:
@@ -116,7 +122,7 @@ class FakeRecorder:
 class FakeApp:
     def __init__(self, data: Path):
         self.data = data
-        self.settings_ = {"auto_capture": True, "auto_publish": True}
+        self.settings_ = {"auto_capture": True, "ask_window": False, "auto_publish": True}
         self.recorder, self.capture_run = None, None
         self.metas, self.calls, self.watch = {}, [], 111
         self.summary_ok, self.publish_error = True, None
@@ -261,13 +267,48 @@ def test_full_meeting_flow_writes_on_stop(tmp_path):
     assert sum(c[0] == "publish" for c in app.calls) == 1
 
 
-def test_meetily_replacing_ours_gets_ours_back_without_regenerating(tmp_path):
+def test_meetily_replacing_ours_asks_instead_of_overwriting(tmp_path):
     app, auto, st = make(tmp_path)
     meeting(app, auto)
     st["meetily_summary"] = "**Summary**\n\nMeetily's own"
-    assert "written to Meetily" in auto.process(event("c", "summary.completed"), LOG)
-    assert sum(c[0] == "publish" for c in app.calls) == 2
+    out = auto.process(event("c", "summary.completed"), LOG)
+    assert "Waiting for you" in out
+    assert sum(c[0] == "publish" for c in app.calls) == 1            # not overwritten
     assert sum(c[0] == "summarize" for c in app.calls) == 1          # no second Gemini call
+    pend = json.loads((tmp_path / "capture-1" / "pending_overwrite.json").read_text())
+    assert pend["reason"] == "replaced" and pend["meeting_id"] == "m1" and pend["title"] == "Weekly sync"
+
+
+def test_existing_meetily_summary_is_not_overwritten_without_asking(tmp_path):
+    app, auto, st = make(tmp_path, meetily_summary="# own\n\nMeetily generated this")
+    out = meeting(app, auto)
+    assert "already has one" in out and "Waiting for you" in out
+    assert not any(c[0] == "publish" for c in app.calls)
+    pend = json.loads((tmp_path / "capture-1" / "pending_overwrite.json").read_text())
+    assert pend["reason"] == "existing"
+    # asking again (e.g. its summary event) keeps one pending decision, still no write
+    assert "Waiting for you" in auto.process(event("c", "summary.completed"), LOG)
+    assert not any(c[0] == "publish" for c in app.calls)
+
+
+def test_no_meetily_summary_is_written_and_clears_pending(tmp_path):
+    app, auto, st = make(tmp_path, no_summary=True)
+    assert "it had none" in meeting(app, auto)
+    assert ("publish", "capture-1", "m1") in app.calls
+    assert not (tmp_path / "capture-1" / "pending_overwrite.json").exists()
+
+
+def test_kept_meetily_summary_is_not_asked_again(tmp_path):
+    from vcs.writeback import fingerprint
+    app, auto, st = make(tmp_path, meetily_summary="Meetily generated this")
+    meeting(app, auto)
+    (tmp_path / "capture-1" / "pending_overwrite.json").unlink()
+    (tmp_path / "capture-1" / "kept_meetily.json").write_text(
+        json.dumps({"fingerprint": fingerprint("Meetily generated this")}))
+    assert "chose to keep" in auto.process(event("c", "summary.completed"), LOG)
+    assert not (tmp_path / "capture-1" / "pending_overwrite.json").exists()
+    st["meetily_summary"] = "Meetily regenerated something else"      # a new Meetily summary: ask again
+    assert "Waiting for you" in auto.process(event("d", "summary.completed"), LOG)
 
 
 def test_meetily_busy_at_stop_then_written_on_its_summary_event(tmp_path):
@@ -371,3 +412,192 @@ def test_server_webhook_route_uses_hmac_not_xvcs(tmp_path):
         assert post(sign(body)) == (200, {"result": "duplicate"})
     finally:
         httpd.shutdown()
+
+
+# ---------------------------------------------------------------- popup: which window to capture
+def make_ask(tmp_path, picker, **state):
+    app, auto, st = make(tmp_path, **state)
+    app.settings_["ask_window"] = True
+    auto.picker = picker
+    return app, auto, st
+
+
+def started(auto, log=LOG):
+    out = auto.process(event("a", "recording.started"), log)
+    if auto._pick_thread is not None:
+        auto._pick_thread.join(5)
+    return out
+
+
+def test_popup_choice_starts_capture_and_links_recording(tmp_path):
+    seen = {}
+    app, auto, st = make_ask(tmp_path, lambda watch: (seen.update(watch=watch) or {"hwnd": 222}))
+    app.settings_["watch"] = {"title": "Slides", "process": "x.exe"}
+    logs = []
+    assert "popup" in started(auto, logs.append)
+    assert app.calls == [("start_capture", 222)] and seen["watch"]["title"] == "Slides"
+    assert app.metas["capture-1"]["recording_meeting_id"] == "m1"
+    assert any("capturing" in m for m in logs)
+    assert "written to Meetily" in auto.process(event("b", "recording.stopped"), LOG)
+
+
+def test_popup_skip_means_no_capture(tmp_path):
+    app, auto, st = make_ask(tmp_path, lambda watch: {"skip": True})
+    logs = []
+    started(auto, logs.append)
+    assert not app.calls and any("skipped" in m for m in logs)
+    assert "no capture running" in auto.process(event("b", "recording.stopped"), LOG)
+
+
+def test_popup_crash_falls_back_to_remembered_window(tmp_path):
+    def boom(watch):
+        raise RuntimeError("no display")
+    app, auto, st = make_ask(tmp_path, boom)
+    logs = []
+    started(auto, logs.append)
+    assert app.calls == [("start_capture", 111)] and any("popup failed" in m for m in logs)
+
+
+def test_recording_ending_cancels_open_popup(tmp_path):
+    gate = threading.Event()
+
+    def slow(watch):
+        gate.wait(5)                       # the user hasn't answered yet
+        return {"hwnd": 222}
+    app, auto, st = make_ask(tmp_path, slow)
+    logs = []
+    auto.process(event("a", "recording.started"), logs.append)
+    assert auto._pick_thread.is_alive()
+    threading.Timer(0.2, gate.set).start()     # popup process terminated -> picker returns
+    assert "no capture running" in auto.process(event("b", "recording.stopped"), LOG)
+    assert not app.calls and any("ended before a window was picked" in m for m in logs)
+
+
+def test_picker_helpers():
+    from vcs.picker import preselect
+    wins = [{"title": "A", "process": "p.exe", "minimized": False},
+            {"title": "B", "process": "q.exe", "minimized": False},
+            {"title": "C", "process": "q.exe", "minimized": False}]
+    assert preselect(wins, "A", "p.exe") == 0
+    assert preselect(wins, "Z", "p.exe") == 0          # only window of that app
+    assert preselect(wins, "Z", "q.exe") is None       # ambiguous
+    assert preselect(wins, "", "") is None
+
+
+# ---------------------------------------------------------------- popups after the recording ends
+def make_post(tmp_path, answers, **state):
+    """ask_generate on; `answers` maps popup kind -> action (the user's clicks)."""
+    app, auto, st = make(tmp_path, **state)
+    app.settings_["ask_generate"] = True
+    asked = []
+
+    def prompter(kind, title="", screens=0):
+        asked.append((kind, title, screens))
+        a = answers[kind]
+        if isinstance(a, Exception):
+            raise a
+        return a
+    auto.prompter = prompter
+    return app, auto, st, asked
+
+
+def settle(auto):
+    """Wait for popup threads, including ones started by other popup threads."""
+    deadline = time.time() + 5
+    while time.time() < deadline and any(t.is_alive() for t in auto._threads):
+        time.sleep(0.02)
+
+
+def stop_and_wait(auto):
+    out = auto.process(event("a", "recording.started"), LOG)
+    logs = []
+    out = auto.process(event("b", "recording.stopped"), logs.append)
+    settle(auto)
+    return out, logs
+
+
+def test_stop_asks_generate_then_writes_when_meetily_has_none(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate"}, no_summary=True)
+    out, logs = stop_and_wait(auto)
+    assert "popup asks" in out
+    assert asked == [("generate", "Weekly sync", -1)]
+    assert ("summarize", "capture-1", "m1", 12.5) in app.calls and ("publish", "capture-1", "m1") in app.calls
+    assert any("it had none" in m for m in logs)
+
+
+def test_stop_not_now_generates_nothing(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "skip"})
+    out, logs = stop_and_wait(auto)
+    assert not any(c[0] in ("summarize", "publish") for c in app.calls)
+    assert any("not generating now" in m for m in logs)
+
+
+def test_generate_popup_failure_still_generates(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": RuntimeError("no display")}, no_summary=True)
+    out, logs = stop_and_wait(auto)
+    assert any("popup failed" in m for m in logs) and ("publish", "capture-1", "m1") in app.calls
+
+
+def test_existing_summary_popup_replace(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate", "overwrite": "replace"},
+                                     meetily_summary="Meetily's own")
+    out, logs = stop_and_wait(auto)
+    assert [k for k, *_ in asked] == ["generate", "overwrite"]
+    assert ("publish", "capture-1", "m1") in app.calls
+    assert not (tmp_path / "capture-1" / "pending_overwrite.json").exists()
+
+
+def test_existing_summary_popup_keep_is_remembered(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate", "overwrite": "keep"},
+                                     meetily_summary="Meetily's own")
+    stop_and_wait(auto)
+    assert not any(c[0] == "publish" for c in app.calls)
+    assert not (tmp_path / "capture-1" / "pending_overwrite.json").exists()
+    assert (tmp_path / "capture-1" / "kept_meetily.json").exists()
+    assert "chose to keep" in auto.process(event("c", "summary.completed"), LOG)   # not asked again
+    assert [k for k, *_ in asked] == ["generate", "overwrite"]
+
+
+def test_existing_summary_popup_later_leaves_it_for_the_web(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate", "overwrite": "later"},
+                                     meetily_summary="Meetily's own")
+    stop_and_wait(auto)
+    assert not any(c[0] == "publish" for c in app.calls)
+    assert (tmp_path / "capture-1" / "pending_overwrite.json").exists()     # the web dialog still asks
+
+
+def test_answer_given_in_web_first_makes_popup_answer_moot(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate", "overwrite": "replace"},
+                                     meetily_summary="Meetily's own")
+    real = auto.prompter
+
+    def web_answers_first(kind, **kw):
+        if kind == "overwrite":
+            (tmp_path / "capture-1" / "pending_overwrite.json").unlink()   # resolved in the web UI
+        return real(kind, **kw)
+    auto.prompter = web_answers_first
+    stop_and_wait(auto)
+    assert not any(c[0] == "publish" for c in app.calls)
+
+
+def test_one_overwrite_popup_per_run(tmp_path):
+    app, auto, st, asked = make_post(tmp_path, {"generate": "generate", "overwrite": "later"},
+                                     meetily_summary="Meetily's own")
+    gate = threading.Event()
+    orig = auto.prompter
+
+    def slow(kind, **kw):
+        if kind == "overwrite":
+            gate.wait(3)
+        return orig(kind, **kw)
+    auto.prompter = slow
+    auto.process(event("a", "recording.started"), LOG)
+    auto.process(event("b", "recording.stopped"), LOG)
+    for _ in range(100):
+        if "capture-1" in auto._asking:
+            break
+        time.sleep(0.02)
+    auto.process(event("c", "summary.completed"), LOG)           # a second trigger while it is open
+    gate.set()
+    settle(auto)
+    assert [k for k, *_ in asked].count("overwrite") == 1

@@ -126,7 +126,7 @@ async function renderAutomation(seq) {
       <td class="small">${esc((e.log || []).slice(-1)[0] || "")}</td>
       <td class="small muted">${e.received_at ? esc(new Date(e.received_at).toLocaleTimeString([], { timeStyle: "short" })) : ""}</td></tr>`).join("");
   box.innerHTML = `<div class="card-head"><div><h2><span class="dot ${AUTO_DOT[a.state] || ""}" style="display:inline-block;margin-right:8px"></span>Automation</h2>
-      <div class="small muted" style="margin-top:2px">${a.state === "active" ? "Listening for Meetily events. " : ""}When a recording starts the watched window is captured; when Meetily's summary is ready ours replaces it (backup kept).
+      <div class="small muted" style="margin-top:2px">${a.state === "active" ? "Listening for Meetily events. " : ""}When a recording starts a popup asks which window to capture (or Skip); when it ends capture stops, a popup asks to generate the summary, and it goes into Meetily if it has none; if Meetily has one you are asked Replace or Keep (popup, also here in the web UI).
       Capture ${a.auto_capture ? "on" : "off"} · write-back ${a.auto_publish ? "on" : "off"} (<a href="#/settings">change</a>)</div>${steps}</div>
       ${a.state === "active" || a.state === "registered" ? '<button class="btn sm" id="atest" type="button">Send test event</button>' : ""}</div>
     <div class="card-body" style="padding-left:0;padding-right:0;padding-bottom:4px">${rows ? `<table><thead><tr><th>Event</th><th>Meeting</th><th>Status</th><th>What happened</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`
@@ -409,10 +409,14 @@ async function pageSettings(seq) {
         <label class="field">After the summary is written<select name="delete_screenshots_after_summary"><option value="false"${s.delete_screenshots_after_summary ? "" : " selected"}>Keep screenshots</option><option value="true"${s.delete_screenshots_after_summary ? " selected" : ""}>Delete screenshots</option></select>
           <span class="hint">Decided: keep by default. Choose Delete to remove images right after a successful write.</span></label></div></div>
       <div class="card"><div class="card-head"><h2>Automation</h2></div><div class="card-body grid cols-2">
-        <label class="field">When a Meetily recording starts<select name="auto_capture"><option value="true"${s.auto_capture ? " selected" : ""}>Capture the watched window</option><option value="false"${s.auto_capture ? "" : " selected"}>Do nothing</option></select>
-          <span class="hint">Watched window: ${esc((s.watch && s.watch.title) || "none yet. Pick one on the New run page")}.</span></label>
-        <label class="field">When Meetily's summary is ready<select name="auto_publish"><option value="true"${s.auto_publish ? " selected" : ""}>Write our summary into Meetily</option><option value="false"${s.auto_publish ? "" : " selected"}>Only generate it here</option></select>
-          <span class="hint">Meetily's own summary is backed up first. Needs a write key.</span></label></div></div>
+        <label class="field">When a Meetily recording starts<select name="auto_capture"><option value="true"${s.auto_capture ? " selected" : ""}>Capture a window</option><option value="false"${s.auto_capture ? "" : " selected"}>Do nothing</option></select>
+          <span class="hint">Capturing starts only when you pick a window (see below). You can also start one by hand on the New run page.</span></label>
+        <label class="field">Which window<select name="ask_window"><option value="true"${s.ask_window ? " selected" : ""}>Ask me in a popup (with Skip)</option><option value="false"${s.ask_window ? "" : " selected"}>Use the remembered window</option></select>
+          <span class="hint">Remembered window: ${esc((s.watch && s.watch.title) || "none yet. Pick one on the New run page")}.</span></label>
+        <label class="field">When the recording ends<select name="ask_generate"><option value="true"${s.ask_generate ? " selected" : ""}>Ask me in a popup: generate the summary?</option><option value="false"${s.ask_generate ? "" : " selected"}>Generate it right away</option></select>
+          <span class="hint">Capture stops and screenshots are extracted either way.</span></label>
+        <label class="field">Our summary and Meetily<select name="auto_publish"><option value="true"${s.auto_publish ? " selected" : ""}>Write it if Meetily has none, otherwise ask Replace / Keep</option><option value="false"${s.auto_publish ? "" : " selected"}>Only generate it here</option></select>
+          <span class="hint">Meetily's own summary is never replaced without your yes, and is backed up first. Needs a write key.</span></label></div></div>
       <div class="card"><div class="card-head"><h2>Screenshot extraction</h2></div><div class="card-body grid cols-2">
         <label class="field">Live capture video<select name="keep_capture_video"><option value="false"${s.keep_capture_video ? "" : " selected"}>Delete after extraction</option><option value="true"${s.keep_capture_video ? " selected" : ""}>Keep in the run folder</option></select>
           <span class="hint">The 1 fps recording of the watched window. Screenshots are kept either way.</span></label>
@@ -428,11 +432,54 @@ async function pageSettings(seq) {
       <div><button class="btn primary" type="submit">Save settings</button></div></form>`;
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const body = {};
-    for (const [k, v] of f.entries()) body[k] = ["model"].includes(k) ? v : ["delete_screenshots_after_summary", "keep_capture_video", "auto_capture", "auto_publish"].includes(k) ? v === "true" : parseFloat(v);
+    for (const [k, v] of f.entries()) body[k] = ["model"].includes(k) ? v : ["delete_screenshots_after_summary", "keep_capture_video", "auto_capture", "ask_window", "ask_generate", "auto_publish"].includes(k) ? v === "true" : parseFloat(v);
     body.hash_threshold = Math.round(body.hash_threshold); body.drift_threshold = Math.round(body.drift_threshold);
     try { await api("PUT", "settings", body); toast("Settings saved"); } catch (er) { toast(er.message, true); }
   };
 }
+
+/* ---------- decisions waiting for the user: Meetily already has a summary ---------- */
+let askOpen = false; const askLater = new Set();
+async function checkPending() {
+  if (askOpen) return;
+  let d; try { d = await api("GET", "pending"); } catch { return; }
+  const p = (d.pending || []).find((x) => !askLater.has(x.run + x.at));
+  if (!p || askOpen) return;
+  askOpen = true;
+  const q = encodeURIComponent;
+  const [info, run] = await Promise.all([
+    api("GET", `runs/${q(p.run)}/publish-info?meeting_id=${q(p.meeting_id)}`).catch(() => null),
+    api("GET", `runs/${q(p.run)}`).catch(() => null)]);
+  const name = p.title ? `“${esc(p.title)}”` : `meeting <span class="mono">${esc(String(p.meeting_id).slice(0, 12))}</span>`;
+  const why = p.reason === "replaced" ? "Meetily replaced the summary we wrote with its own." : "Meetily already has its own summary for this meeting.";
+  const dlg = h(`<dialog class="dlg"><div class="stack">
+    <div><h2>Overwrite Meetily's summary?</h2>
+    <div class="small muted" style="margin-top:6px">The recording of ${name} has ended and our summary (it includes what was on screen) is ready. ${why}
+      If you overwrite it, Meetily's current summary is saved to this run's <span class="mono">backups/</span> folder first.</div></div>
+    ${info?.current?.text ? `<details><summary class="small">Meetily's current summary (${info.current.text.length} characters)</summary><pre class="block mono" style="margin-top:8px;max-height:220px">${esc(info.current.text)}</pre></details>` : ""}
+    ${run?.summary ? `<details><summary class="small">Our summary (${run.summary.length} characters)</summary><pre class="block mono" style="margin-top:8px;max-height:220px">${esc(run.summary)}</pre></details>` : ""}
+    <div class="log mono small" id="alog" hidden></div>
+    <div class="row"><button class="btn ghost sm" id="alater" type="button">Decide later</button><span class="spacer"></span>
+      <button class="btn" id="akeep" type="button">Keep Meetily's</button><button class="btn primary" id="aover" type="button">Overwrite with ours</button></div></div></dialog>`);
+  document.body.appendChild(dlg); dlg.showModal();
+  let settled = false;
+  dlg.addEventListener("close", () => { if (!settled) askLater.add(p.run + p.at); dlg.remove(); askOpen = false; setTimeout(checkPending, 1500); });
+  $("#alater", dlg).onclick = () => dlg.close();
+  const busy = (on) => dlg.querySelectorAll("button").forEach((b) => (b.disabled = on));
+  $("#akeep", dlg).onclick = async () => {
+    busy(true);
+    try { await api("POST", `runs/${q(p.run)}/overwrite`, { action: "keep" }); settled = true; toast("Kept Meetily's summary"); dlg.close(); }
+    catch (e) { toast(e.message, true); busy(false); }
+  };
+  $("#aover", dlg).onclick = async () => {
+    busy(true);
+    try {
+      const j = await api("POST", `runs/${q(p.run)}/overwrite`, { action: "overwrite" });
+      watchJob(j.job, $("#alog", dlg), () => { settled = true; toast("Meetily's summary replaced with ours"); dlg.close(); if (location.hash === "#/runs/" + p.run) route(); });
+    } catch (e) { toast(e.message, true); busy(false); }
+  };
+}
+checkPending(); setInterval(checkPending, 4000);
 
 /* ---------- router ---------- */
 async function route() {

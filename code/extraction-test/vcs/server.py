@@ -26,7 +26,7 @@ from .extractor import Params, extract
 from .meetily_client import MeetilyClient, MeetilyError, MeetilyOffline
 from .prompts import build_system_prompt
 from .summarizer import DEFAULT_MODEL, SummaryError, summarize
-from .writeback import WritebackError, publish, summary_text
+from .writeback import WritebackError, fingerprint, publish, summary_text
 from . import speaker_names
 from .transcript import build_input, speakers
 
@@ -48,8 +48,11 @@ DEFAULT_SETTINGS = {
     # Last window picked for capture ({hwnd, title, process}); step (e) re-finds it by these.
     "watch": {},
     # Step (e) automation on Meetily webhooks.
-    "auto_capture": True,       # recording.started -> capture the watched window
-    "auto_publish": True,       # summary.completed -> write our summary into Meetily
+    "auto_capture": True,       # recording.started -> capture a window
+    "ask_window": True,         # ...chosen in a popup (Skip = no capture); off = the remembered window
+    "ask_generate": True,       # recording ended: popup "generate the summary?" (off = generate at once)
+    "auto_publish": True,       # ...write our summary into Meetily if it has none, else ask
+    "open_web_prompt": True,    # open the web UI on the run when a decision is waiting there
 }
 
 
@@ -107,6 +110,8 @@ class App:
         self.recorder = None            # WindowRecorder while capturing
         self.capture_run: str | None = None
         self.capture_lock = threading.Lock()
+        self.ui_seen = 0.0              # last time the web UI polled for decisions
+        self._resolving: set[str] = set()
 
     # ---- settings
     def settings(self) -> dict:
@@ -285,6 +290,52 @@ class App:
 
         job = self.jobs.start("extract", work, run_id)
         return {"run": run_id, "job": job["id"], **info}
+
+    # ---- overwrite decisions (Meetily already has a summary when ours is ready)
+    def ui_recently_seen(self, within: float = 15.0) -> bool:
+        return time.time() - self.ui_seen < within
+
+    def pending_overwrites(self) -> list[dict]:
+        out = []
+        for d in self.data.iterdir():
+            f = d / "pending_overwrite.json"
+            if d.is_dir() and f.exists() and d.name not in self._resolving:
+                try:
+                    out.append(json.loads(f.read_text("utf-8")))
+                except ValueError:
+                    continue
+        return sorted(out, key=lambda r: r.get("at", ""))
+
+    def resolve_overwrite(self, run_id: str, action: str) -> dict:
+        d = self.run_dir(run_id)
+        f = d / "pending_overwrite.json"
+        if not f.exists():
+            raise FileNotFoundError("nothing is waiting for a decision on this run")
+        mid = json.loads(f.read_text("utf-8"))["meeting_id"]
+        if action == "keep":
+            try:
+                cur = MeetilyClient().get_summary(mid)
+                fp = fingerprint(summary_text(cur.get("result")))
+            except MeetilyError:
+                fp = None
+            (d / "kept_meetily.json").write_text(json.dumps({
+                "meeting_id": mid, "fingerprint": fp, "at": datetime.now(timezone.utc).isoformat()},
+                indent=2), "utf-8")
+            f.unlink()
+            return {"ok": True}
+        if action != "overwrite":
+            raise ValueError("action must be overwrite or keep")
+        job = self.start_publish(run_id, mid)          # backs up Meetily's summary first
+        self._resolving.add(run_id)
+
+        def settle():
+            j = self.wait_job(job)
+            if j["status"] == "done":
+                f.unlink(missing_ok=True)
+            self._resolving.discard(run_id)
+
+        threading.Thread(target=settle, daemon=True).start()
+        return {"job": job["id"]}
 
     # ---- helpers for the webhook automation (step e)
     def find_watch_window(self) -> int | None:
@@ -571,6 +622,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_jpeg(thumbnail_jpeg(int(parts[1])))
             if path == "capture":
                 return self.send_json(a.capture_status())
+            if path == "pending":
+                a.ui_seen = time.time()
+                return self.send_json({"pending": a.pending_overwrites()})
             if path == "automation":
                 if a.automation is None:
                     return self.send_json({"state": "off", "message": "Started with --no-webhooks."})
@@ -641,6 +695,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(a.start_capture(int(self.body_json().get("hwnd") or 0)))
             if path == "capture/stop":
                 return self.send_json(a.stop_capture())
+            if len(parts) == 3 and parts[0] == "runs" and parts[2] == "overwrite":
+                return self.send_json(a.resolve_overwrite(parts[1], self.body_json().get("action")))
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "publish":
                 b = self.body_json()
                 if b.get("confirm") is not True:
