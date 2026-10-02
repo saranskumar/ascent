@@ -1,4 +1,4 @@
-"""Optional local vision model for diagram screens (Ollama / llama.cpp, OpenAI-compatible).
+"""Optional local vision model for diagram screens (Ollama native API).
 
 Only screens the extractor marked "diagram" (almost no OCR text) are sent here; everything
 else stays OCR-only. Off unless VCS_VLM_MODEL is set, so the Gemini image path is unchanged.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import cv2
 
-DEFAULT_URL = "http://127.0.0.1:11434/v1/chat/completions"
+DEFAULT_URL = "http://127.0.0.1:11434/api/chat"
 MAX_SIDE = 1024      # downscale long side: the main speed lever for small VLMs
 PROMPT = ("This is a screen shown in a meeting. State the facts it shows in 2-3 plain sentences: "
           "titles, labels, numbers, and how the parts relate. Do not describe colours or layout.")
@@ -41,20 +41,20 @@ def _jpeg_b64(path: Path) -> str:
 def describe(image: Path, timeout: float = 120.0) -> str:
     """Return the model's description of one image. Raises on any failure; callers decide
     whether to fall back."""
+    options = {"temperature": 0, "num_predict": 250}
+    if os.environ.get("VCS_VLM_NUM_GPU", "").strip():     # 0 = CPU only (vision encoder needs
+        options["num_gpu"] = int(os.environ["VCS_VLM_NUM_GPU"])   # RAM/VRAM headroom on 4 GB GPUs)
     body = {
         "model": os.environ["VCS_VLM_MODEL"].strip(),
-        "temperature": 0,
-        "max_tokens": 200,
-        "keep_alive": 0,   # Ollama: free VRAM right after the call (shared 4 GB GPU)
-        "messages": [{"role": "user", "content": [
-            {"type": "text", "text": PROMPT},
-            {"type": "image_url",
-             "image_url": {"url": "data:image/jpeg;base64," + _jpeg_b64(Path(image))}},
-        ]}],
+        "stream": False,
+        "keep_alive": 0,   # free memory right after the call
+        "options": options,
+        "messages": [{"role": "user", "content": PROMPT,
+                      "images": [_jpeg_b64(Path(image))]}],
     }
     req = urllib.request.Request(
         os.environ.get("VCS_VLM_URL", DEFAULT_URL).strip(),
         data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         out = json.load(r)
-    return " ".join((out["choices"][0]["message"]["content"] or "").split())
+    return " ".join((out["message"]["content"] or "").split())
