@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -54,7 +55,15 @@ def serper(query: str, n: int) -> list[Candidate]:
             for i in d.get("images", []) if i.get("imageUrl")]
 
 
+_ddg_lock = threading.Lock()      # ddgs shares session state; overlapping searches can get each other's results
+
+
 def ddg(query: str, n: int) -> list[Candidate]:
+    with _ddg_lock:
+        return _ddg(query, n)
+
+
+def _ddg(query: str, n: int) -> list[Candidate]:
     from ddgs import DDGS
     rows = DDGS(timeout=8).images(f"{query} {NO_STOCK}", max_results=n, safesearch="moderate")
     if len(rows) < 5:       # too many -site: operators sometimes starve ddg; fall back to the plain query
@@ -131,6 +140,12 @@ def _one(name: str, query: str, n: int) -> list[Candidate]:
         return []
 
 
+def _keys(text: str) -> set[str]:
+    import re
+    return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", text.lower())
+            if len(w) > 2 and w not in KIND_WORDS}
+
+
 def search_all(query: str, n: int = 20) -> tuple[list[Candidate], list[str]]:
     """Race the first two usable providers: when one answers, give the other GRACE seconds, then
     merge whatever is in (provider order, no duplicate URLs). Later providers are only asked if
@@ -156,9 +171,14 @@ def search_all(query: str, n: int = 20) -> tuple[list[Candidate], list[str]]:
             results[name] = _one(name, query, n)
             if results[name]:
                 break
+    keys = _keys(query)
     seen, merged = set(), []
     for name in order:
         for c in results.get(name, []):
+            # a result whose title shares no word with the query is another query's answer
+            # (ddg occasionally mixes up concurrent searches)
+            if c.title and keys and not keys & _keys(c.title + " " + c.page):
+                continue
             if c.url not in seen:
                 seen.add(c.url)
                 merged.append(c)
