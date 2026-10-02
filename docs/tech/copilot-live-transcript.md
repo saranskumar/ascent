@@ -1,6 +1,12 @@
 # Live Co-pilot: Status & Options (Oct 2)
 
-**Status: on hold, no decision yet.** The live co-pilot needs a live transcript, and Meetily Pro doesn't expose one (see [meetily-api-findings.md](meetily-api-findings.md)). The visual summary is the priority.
+**Status (updated Oct 2, evening): in progress, built as three decoupled parts.** The live transcript source is still undecided (Meetily Pro doesn't expose one, see [meetily-api-findings.md](meetily-api-findings.md)), so the co-pilot is split so that it doesn't block on it: part 1 (transcript) emits segments, part 2 (image engine) is **working**, part 3 (GUI) is being built. Code, contracts and mocks are in [`code/copilot/`](../../code/copilot/README.md); engine details in [its README](../../code/copilot/engine/README.md). The visual summary remains the priority.
+
+## What exists now
+
+- **Image engine (part 2):** cue phrases (fast path) plus an LLM over the last 30 s (slow path) decide when a picture would help; Serper + DuckDuckGo are raced (Wikimedia Commons if both are empty); downloads are filtered (banners, tiny images, stock watermarks, near-duplicates) and 3 images are published as a `suggestion`. About 5-7 s from speech to suggestion on the sample talks.
+- **Web image search is on by default** for the engine; only the short keyword query is sent, never the transcript. This replaces the earlier "local folder first" idea below for the co-pilot.
+- **Still open:** the real live transcript source (the options below), and the GUI.
 
 ## Why it's blocked
 
@@ -19,12 +25,12 @@
 
 Transcription should stay local (privacy-first, like Meetily). Update Oct 2: **LLM APIs (Gemini) are allowed for summarisation/LLM steps** where needed.
 
-## Images, if we build it
+## Images
 
-- Default: the team's **local image folder**, indexed with CLIP on-device.
-- Optional and opt-in: web image search, sending only the keyword (never audio or transcript).
+- Implemented: web image search (Serper, DuckDuckGo, Wikimedia Commons), sending only the keyword (never audio or transcript).
+- Not built: a local image folder indexed with CLIP on-device, as an offline alternative.
 
-## Suggested next step (if revived)
+## Suggested next step for the transcript source
 
 Timebox one person to 1–2 h trying to build Meetily Community from source. If it builds → option 3. If not → option 4.
 

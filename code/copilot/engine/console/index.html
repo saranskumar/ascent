@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine console</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --card: #1c222b; --line: #2a313c; --text: #e6edf3;
+    --muted: #8b949e; --dim: #5c6570; --accent: #4ea1ff; --ok: #3fb950; --warn: #d29922;
+    --bad: #f85149; --elev: #e0a030; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; }
+  button, select, input { font: inherit; color: var(--text); background: var(--card);
+         border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  button.primary { background: #1f6feb; border-color: #1f6feb; }
+  code, .mono { font-family: var(--mono); font-size: 12px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 8px 14px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0 6px 0 0; }
+  .group { display: flex; gap: 6px; align-items: center; }
+  .group > .label { color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 99px;
+          background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .pill.on::before { background: var(--ok); } .pill.wait::before { background: var(--warn); }
+  .pill.bad::before { background: var(--bad); }
+  .spacer { flex: 1; }
+
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.7fr) minmax(300px, 1.2fr); }
+  section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  section:last-child { border-right: 0; }
+  .head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line);
+          color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+  .head .sub { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .scroll { flex: 1; overflow-y: auto; padding: 10px 12px; }
+
+  /* transcript */
+  .seg { padding: 4px 0 4px 8px; border-left: 2px solid transparent; }
+  .seg .t { color: var(--dim); font-family: var(--mono); font-size: 11px; margin-right: 6px; }
+  .seg.partial { color: var(--muted); font-style: italic; }
+  .seg.cue { border-left-color: var(--elev); }
+  .seg .tag { font-size: 10px; color: var(--elev); margin-left: 6px; }
+  .seg.used .tag.sug { color: var(--ok); }
+  .say { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
+  .say input { flex: 1; }
+  .say .err { color: var(--bad); font-size: 12px; }
+
+  /* runs */
+  .run { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; padding: 8px 10px; }
+  .run.quiet { opacity: .55; padding: 5px 10px; }
+  .run.quiet:not(.open) .body, .run.collapsed .body { display: none; }
+  .hide-quiet .run.quiet:not(.open) { display: none; }
+  .run.done { border-color: #2f5f3a; }
+  .run.elevated { border-color: var(--elev); }
+  .rh { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+  .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--line); color: var(--muted); }
+  .badge.fast { background: #4a3510; color: var(--elev); } .badge.slow { background: #10304a; color: var(--accent); }
+  .rh .what { flex: 1; } .rh .time { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .step { display: grid; grid-template-columns: 70px 1fr; gap: 8px; padding: 5px 0; border-top: 1px dashed var(--line); }
+  .step:first-child { border-top: 0; }
+  .step .k { color: var(--muted); font-size: 11px; text-transform: uppercase; padding-top: 1px; }
+  .heard { color: var(--text); } .heard div::before { content: "“"; color: var(--dim); } .heard div::after { content: "”"; color: var(--dim); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { white-space: pre-wrap; background: #0b0e13; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 6px 0 0; max-height: 260px; overflow: auto; font: 11px/1.4 var(--mono); }
+  .need b { color: #fff; } .q { color: var(--accent); }
+  .no { color: var(--muted); } .err { color: var(--bad); } .ok { color: var(--ok); } .warnc { color: var(--warn); }
+  .chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--line); color: var(--muted); }
+  .cands { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .cand { position: relative; width: 62px; height: 46px; border-radius: 4px; overflow: hidden; border: 2px solid var(--line); background: #0b0e13; }
+  .cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cand.picked { border-color: var(--ok); }
+  .cand.fail { opacity: .35; }
+  .cand.skip { opacity: .6; }
+  .cand .s { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; background: rgba(0,0,0,.7); color: #ddd; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tally { font-size: 11px; color: var(--muted); }
+  .spin::after { content: " …"; animation: blink 1s infinite; } @keyframes blink { 50% { opacity: .2; } }
+  .divider { text-align: center; color: var(--dim); font-size: 11px; margin: 8px 0; }
+
+  /* suggestions */
+  .sug { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+  .sug.elevated { border-color: var(--elev); box-shadow: 0 0 0 1px var(--elev) inset; }
+  .sug .top { display: flex; gap: 8px; align-items: baseline; }
+  .sug .top b { flex: 1; font-size: 14px; }
+  .sug .reason { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+  .imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .imgs figure { margin: 0; cursor: zoom-in; }
+  .imgs img { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 4px; background: #0b0e13; border: 2px solid transparent; }
+  .imgs figure.sel img { border-color: var(--ok); }
+  .imgs figcaption { font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .x { background: none; border: 0; color: var(--dim); padding: 0 4px; }
+  .sug.dismissed { opacity: .4; }
+
+  /* logs + lightbox */
+  #logs { display: none; height: 32vh; border-top: 1px solid var(--line); grid-template-columns: 1fr 1fr; }
+  #logs.open { display: grid; }
+  #logs pre { margin: 0; max-height: none; height: 100%; border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 8px; z-index: 9; }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 92vw; max-height: 84vh; border-radius: 6px; background: #fff; }
+  #lightbox a { color: var(--accent); }
+  .empty { color: var(--dim); padding: 20px 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Engine console</h1>
+  <div class="group">
+    <span class="label">Transcript</span>
+    <select id="trVariant"><option value="typing">typing</option><option value="mock">mock talk</option></select>
+    <input id="trSpeed" type="number" min="0.5" max="10" step="0.5" value="1" title="mock speed" style="width:56px">
+    <button data-start="transcript">Start</button><button data-stop="transcript">Stop</button>
+    <span class="pill" id="st-transcript">stopped</span>
+  </div>
+  <div class="group">
+    <span class="label">Engine</span>
+    <select id="enVariant"><option value="real">real</option><option value="mock">mock</option></select>
+    <select id="enLLM" title="LLM"><option value="">LLM: auto</option><option value="gemini">gemini only</option><option value="local">local only</option></select>
+    <select id="enSearch" title="search providers"><option value="">search: auto</option><option value="ddg,wikimedia">keyless</option><option value="serper,ddg,wikimedia">serper first</option></select>
+    <button data-start="engine">Start</button><button data-stop="engine">Stop</button>
+    <span class="pill" id="st-engine">stopped</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <span class="pill" id="ws-tr">transcript ws</span>
+    <span class="pill" id="ws-ev">events ws</span>
+    <span class="pill" id="ws-sg">suggestions ws</span>
+    <span class="pill" id="ws-hub">console</span>
+    <button id="logsBtn">Logs</button>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="head">Live transcript <span class="sub" id="trCount"></span></div>
+    <div class="scroll" id="transcript"><div class="empty">Waiting for speech… start a transcript source, or type below.</div></div>
+    <form class="say" id="sayForm">
+      <input id="sayInput" placeholder="Type a line as the speaker and press Enter (typing mode)" autocomplete="off">
+      <span class="err" id="sayErr"></span>
+    </form>
+  </section>
+
+  <section>
+    <div class="head">Engine runs <span class="sub" id="runStats"></span><span class="spacer"></span>
+      <label class="sub"><input type="checkbox" id="hideQuiet" checked> hide "no visual" checks</label></div>
+    <div class="scroll hide-quiet" id="runs"><div class="empty">Each time the engine looks at the speech, it shows up here: what it heard, what the LLM decided, what it searched for, and which images it kept.</div></div>
+  </section>
+
+  <section>
+    <div class="head">Suggestions → GUI <span class="sub" id="sugCount"></span><span class="spacer"></span>
+      <label class="sub" title="Clicking an image also sends select, ✕ sends dismiss, like the real GUI"><input type="checkbox" id="actGui"> act as GUI</label></div>
+    <div class="scroll" id="sugs"><div class="empty">Suggestions appear here exactly as the GUI receives them.</div></div>
+  </section>
+</main>
+
+<div id="logs"><pre id="log-transcript"></pre><pre id="log-engine"></pre></div>
+<div id="lightbox"><img id="lbImg" alt=""><div><a id="lbLink" target="_blank" rel="noopener"></a></div></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hhmmss = t => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
+const host = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+let cfg, sugStream;
+
+// ------------------------------------------------------------------ streams (seq + ?since resume)
+function stream(url, key, onMsg) {
+  let last = null, ws;
+  const pill = $("#ws-" + key);
+  function open() {
+    ws = new WebSocket(last === null ? url : `${url}?since=${last}`);
+    ws.onopen = () => { pill.className = "pill on"; };
+    ws.onclose = () => { pill.className = "pill bad"; setTimeout(open, 1000); };
+    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.seq != null) last = m.seq; onMsg(m); };
+  }
+  open();
+  return { send: d => ws && ws.readyState === 1 && ws.send(JSON.stringify(d)) };
+}
+
+// ------------------------------------------------------------------ transcript
+const segEls = new Map();
+let nSeg = 0;
+function onSegment(m) {
+  if (m.type !== "segment") return;
+  const box = $("#transcript");
+  $(".empty", box)?.remove();
+  let el = segEls.get(m.id);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "seg";
+    segEls.set(m.id, el);
+    box.appendChild(el);
+    nSeg++;
+  }
+  const tags = el.querySelectorAll(".tag");
+  el.innerHTML = `<span class="t">${(m.start ?? 0).toFixed(1)}</span>${m.speaker ? `<span class="t">${esc(m.speaker)}</span>` : ""}${esc(m.text)}`;
+  tags.forEach(t => el.appendChild(t));
+  el.classList.toggle("partial", !m.final);
+  $("#trCount").textContent = `${nSeg} lines`;
+  stick(box);
+}
+function tagSeg(id, cls, text) {
+  const el = segEls.get(id);
+  if (!el || el.querySelector(".tag." + cls)) return;
+  el.insertAdjacentHTML("beforeend", `<span class="tag ${cls}">${esc(text)}</span>`);
+}
+
+// ------------------------------------------------------------------ engine runs
+const runs = new Map();
+const stats = { runs: 0, sugs: 0, lat: [] };
+function runCard(id, t) {
+  let r = runs.get(id);
+  if (r) return r;
+  const box = $("#runs");
+  $(".empty", box)?.remove();
+  const el = document.createElement("div");
+  el.className = "run";
+  el.innerHTML = `<div class="rh"><span class="badge"></span><span class="what"></span><span class="time">${t ? hhmmss(t) : ""}</span></div><div class="body"></div>`;
+  $(".rh", el).onclick = () => el.classList.toggle(el.classList.contains("quiet") ? "open" : "collapsed");
+  box.prepend(el);
+  r = { el, body: $(".body", el), steps: {} };
+  runs.set(id, r);
+  stats.runs++;
+  return r;
+}
+function step(r, key, label, html) {
+  let s = r.steps[key];
+  if (!s) {
+    s = document.createElement("div");
+    s.className = "step";
+    s.innerHTML = `<div class="k">${label}</div><div class="v"></div>`;
+    r.body.appendChild(s);
+    r.steps[key] = s;
+  }
+  $(".v", s).innerHTML = html;
+}
+const STATUS_CLASS = st => st.startsWith("picked") ? "picked" : /failed|readable|blank|duplicate|small|stock|slow/.test(st) ? "fail" : "skip";
+
+function onEvent(e) {
+  if (!e.run) {
+    if (e.event === "select" || e.event === "dismiss") markFeedback(e);
+    return;
+  }
+  const r = runCard(e.run, e.t);
+  const head = $(".what", r.el), badge = $(".badge", r.el);
+  switch (e.event) {
+    case "detect_start":
+      badge.textContent = e.path.toUpperCase();
+      badge.className = "badge " + e.path;
+      head.innerHTML = e.cue ? `cue <b>“${esc(e.cue)}”</b>` : `checking recent speech`;
+      head.innerHTML += ` <span class="spin"></span>`;
+      step(r, "heard", "Heard", `<div class="heard">${e.new_lines.map(l => `<div>${esc(l)}</div>`).join("")}</div>
+        <details><summary>prompt sent to the LLM</summary><pre>${esc(e.prompt)}</pre></details>`);
+      break;
+    case "llm_error":
+      step(r, "llm", "LLM", `<span class="err">${esc(e.error)}</span>`);
+      break;
+    case "detect": {
+      const n = e.need;
+      if (e.seg) tagSeg(e.seg, "cue", "cue");
+      const be = (n?.backend || "").replace("gemini:", "") || (n?.path === "heuristic" ? "no LLM (words after cue)" : "");
+      if (!n) {
+        head.innerHTML = e.cue ? `cue <b>“${esc(e.cue)}”</b> → no visual` : `no visual needed`;
+        step(r, "llm", "LLM", `<span class="no">no visual needed</span> <span class="tally">${e.secs}s</span>`);
+        r.el.classList.add("quiet");
+      } else {
+        head.innerHTML = `<b>${esc(n.topic)}</b> <span class="spin"></span>`;
+        step(r, "llm", "LLM", `<div class="need"><b>${esc(n.topic)}</b> · ${esc(n.kind)} · conf ${(+n.confidence).toFixed(2)} · ${n.priority}</div>
+          <div>query <code class="q">${esc(n.query)}</code></div>
+          ${n.reason ? `<div class="tally">because “${esc(n.reason)}”</div>` : ""}
+          <div class="tally">${esc(be)} · ${e.secs}s</div>`);
+        if (n.priority === "elevated") r.el.classList.add("elevated");
+      }
+      break;
+    }
+    case "skip_duplicate":
+      head.innerHTML = `<b>${esc(e.topic)}</b> → already suggested`;
+      step(r, "out", "Result", `<span class="no">skipped: same topic was suggested recently</span>`);
+      r.el.classList.add("quiet");
+      break;
+    case "search_start":
+      step(r, "search", "Search", `<code class="q">${esc(e.query)}</code> <span class="spin">searching</span>`);
+      break;
+    case "search":
+      step(r, "search", "Search", `<code class="q">${esc(e.query)}</code><br><span class="chips">${e.providers.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</span>
+        <span class="tally">${e.n} candidates · ${e.secs}s</span>`);
+      break;
+    case "fetch": {
+      const tally = {};
+      e.candidates.forEach(c => tally[c.status] = (tally[c.status] || 0) + 1);
+      const order = ["picked", "picked (fallback: was rejected)", "spare (enough already)", "same site as a picked one", "duplicate", "download failed", "too slow, skipped", "not a readable image", "blank", "too small or banner", "stock / blocked site", "not tried"];
+      const tallyTxt = Object.entries(tally).sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+        .map(([k, v]) => `<span class="${k.startsWith("picked") ? "ok" : ""}">${v} ${esc(k)}</span>`).join(" · ");
+      const tiles = e.candidates.map(c => `<a class="cand ${STATUS_CLASS(c.status)}" href="${esc(c.page || c.url)}" target="_blank" rel="noopener"
+          title="${esc(c.title)}\n${esc(c.domain)} · ${c.provider}${c.w ? ` · ${c.w}×${c.h}` : ""}\n→ ${esc(c.status)}">
+          <img loading="lazy" referrerpolicy="no-referrer" src="${esc(c.thumb || c.url)}" onerror="this.style.display='none'"><span class="s">${esc(c.status)}</span></a>`).join("");
+      step(r, "fetch", "Images", `<div class="tally">${tallyTxt} · ${e.secs}s</div><details ${e.picked ? "" : "open"}><summary>all ${e.candidates.length} candidates</summary><div class="cands">${tiles}</div></details>`);
+      break;
+    }
+    case "no_images":
+      head.innerHTML += ` <span class="err">→ no usable images</span>`;
+      $(".spin", head)?.remove();
+      step(r, "out", "Result", `<span class="err">nothing usable, topic released</span>`);
+      break;
+    case "upgrade":
+      step(r, "up", "Upgrade", `<span class="warnc">cue phrase arrived: upgraded to elevated</span>`);
+      r.el.classList.add("elevated");
+      break;
+    case "suggest":
+      $(".spin", head)?.remove();
+      head.innerHTML = `<b>${esc(e.topic)}</b> → <span class="ok">suggested</span>`;
+      step(r, "out", "Result", `<span class="ok">${esc(e.sug)}</span> · ${e.priority} · ${e.n_images} images ·
+        <b>${e.total_secs}s</b> after speech <span class="tally">(search+download ${e.search_secs}s)</span>`);
+      r.el.classList.add("done");
+      stats.sugs++; stats.lat.push(e.total_secs);
+      break;
+  }
+  const lat = [...stats.lat].sort((a, b) => a - b);
+  $("#runStats").textContent = `${stats.runs} checks · ${stats.sugs} suggestions` + (lat.length ? ` · median ${lat[lat.length >> 1].toFixed(1)}s after speech` : "");
+}
+
+// ------------------------------------------------------------------ suggestions (as the GUI sees them)
+const sugEls = new Map();
+function onSuggestion(s) {
+  if (s.type !== "suggestion") return;
+  const box = $("#sugs");
+  $(".empty", box)?.remove();
+  if (sugEls.has(s.id)) return;
+  const el = document.createElement("div");
+  el.className = "sug " + s.priority;
+  el.innerHTML = `<div class="top"><b>${esc(s.topic)}</b><span class="badge ${s.priority === "elevated" ? "fast" : ""}">${s.priority}</span>
+      <span class="tally mono">${esc(s.id)}</span><button class="x" title="dismiss">✕</button></div>
+    <div class="reason">${esc(s.reason)}</div>
+    <div class="imgs">${s.images.map(i => `<figure data-img="${esc(i.id)}"><img src="${esc(i.thumb_url)}" alt="${esc(i.caption)}">
+      <figcaption title="${esc(i.caption)}">${esc(host(i.source_ref))} · ${i.width}×${i.height}</figcaption></figure>`).join("")}</div>`;
+  el.querySelectorAll("figure").forEach((f, n) => f.onclick = () => {
+    const im = s.images[n];
+    lightbox(im);
+    if ($("#actGui").checked) {
+      sugStream.send({ type: "select", suggestion_id: s.id, image_id: im.id });
+      el.querySelectorAll("figure").forEach(x => x.classList.remove("sel"));
+      f.classList.add("sel");
+    }
+  });
+  $(".x", el).onclick = () => {
+    if ($("#actGui").checked) sugStream.send({ type: "dismiss", suggestion_id: s.id });
+    el.classList.add("dismissed");
+  };
+  (s.source_segment_ids || []).forEach(id => tagSeg(id, "sug", "→ " + s.topic));
+  sugEls.set(s.id, el);
+  box.prepend(el);
+  $("#sugCount").textContent = `${sugEls.size}`;
+}
+function markFeedback(e) {
+  const el = sugEls.get(e.sug);
+  if (!el) return;
+  if (e.event === "dismiss") el.classList.add("dismissed");
+  if (e.event === "select") el.querySelector(`figure[data-img="${CSS.escape(e.image || "")}"]`)?.classList.add("sel");
+}
+function lightbox(im) {
+  $("#lbImg").src = im.url;
+  $("#lbLink").href = im.source_ref;
+  $("#lbLink").textContent = `${im.caption || ""} — ${host(im.source_ref)}`;
+  $("#lightbox").classList.add("open");
+}
+$("#lightbox").onclick = e => { if (e.target.tagName !== "A") $("#lightbox").classList.remove("open"); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("#lightbox").classList.remove("open"); });
+
+// ------------------------------------------------------------------ console hub (processes, logs)
+function connectHub() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const pill = $("#ws-hub");
+  ws.onopen = () => pill.className = "pill on";
+  ws.onclose = () => { pill.className = "pill bad"; setTimeout(connectHub, 1500); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "status") showStatus(m.parts);
+    if (m.type === "log") addLog(m.part, [m.line]);
+    if (m.type === "logs") { $("#log-" + m.part).textContent = ""; addLog(m.part, m.lines); }
+  };
+}
+const prevState = {};
+function showStatus(parts) {
+  for (const [name, p] of Object.entries(parts)) {
+    const pill = $("#st-" + name);
+    pill.textContent = `${p.variant || name}: ${p.state}`;
+    pill.title = p.detail;
+    pill.className = "pill " + ({ running: "on", starting: "wait", exited: "bad", error: "bad" }[p.state] || "");
+    if (name === "engine" && p.state === "starting" && prevState.engine && prevState.engine !== "starting")
+      $("#runs").insertAdjacentHTML("afterbegin", `<div class="divider">— engine restarted ${new Date().toLocaleTimeString([], { hour12: false })} —</div>`);
+    if (name === "transcript" && p.state === "starting" && prevState.transcript && prevState.transcript !== "starting") {
+      segEls.clear();   // a new source may reuse segment ids
+      $("#transcript").insertAdjacentHTML("beforeend", `<div class="divider">— transcript source restarted (${esc(p.variant)}) —</div>`);
+    }
+    if (p.state === "error" || p.state === "exited") $("#logs").classList.add("open");
+    prevState[name] = p.state;
+    if (p.variant) $(name === "engine" ? "#enVariant" : "#trVariant").value = p.variant;
+  }
+}
+function addLog(part, lines) {
+  const pre = $("#log-" + part);
+  pre.textContent += lines.map(l => l + "\n").join("");
+  if (pre.textContent.length > 200000) pre.textContent = pre.textContent.slice(-150000);
+  pre.scrollTop = pre.scrollHeight;
+}
+$("#logsBtn").onclick = () => $("#logs").classList.toggle("open");
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
+}
+document.querySelectorAll("[data-start]").forEach(b => b.onclick = () => {
+  const part = b.dataset.start;
+  const body = part === "engine"
+    ? { part, variant: $("#enVariant").value, opts: { COPILOT_LLM: $("#enLLM").value, COPILOT_SEARCH: $("#enSearch").value } }
+    : { part, variant: $("#trVariant").value, opts: { speed: +$("#trSpeed").value || 1 } };
+  post("/api/start", body);
+});
+document.querySelectorAll("[data-stop]").forEach(b => b.onclick = () => post("/api/stop", { part: b.dataset.stop }));
+
+$("#sayForm").onsubmit = async e => {
+  e.preventDefault();
+  const text = $("#sayInput").value.trim();
+  if (!text) return;
+  const r = await post("/api/say", { text });
+  $("#sayErr").textContent = r.ok ? "" : r.error;
+  if (r.ok) $("#sayInput").value = "";
+};
+$("#hideQuiet").onchange = e => $("#runs").classList.toggle("hide-quiet", e.target.checked);
+
+function stick(box) { if (box.scrollHeight - box.scrollTop - box.clientHeight < 120) box.scrollTop = box.scrollHeight; }
+
+(async function init() {
+  cfg = await (await fetch("/api/config")).json();
+  connectHub();
+  stream(cfg.transcript_ws, "tr", onSegment);
+  stream(cfg.events_ws, "ev", onEvent);
+  sugStream = stream(cfg.suggestions_ws, "sg", onSuggestion);
+})();
+</script>
+</body>
+</html>

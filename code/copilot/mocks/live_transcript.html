@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Live Transcript Viewer - Ascent Co-pilot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0c0d12;
+      --card-bg: #151821;
+      --card-border: #232838;
+      --text-main: #f1f3f9;
+      --text-muted: #8b94a7;
+      --accent: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.25);
+      --green: #10b981;
+      --amber: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 16px 28px;
+      background: rgba(21, 24, 33, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: #1e2433;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      box-shadow: 0 0 10px #ef4444;
+      transition: all 0.3s ease;
+    }
+    .dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 10px var(--green);
+    }
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .segment-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+      animation: fadeIn 0.25s ease-out;
+    }
+    .segment-card:hover {
+      border-color: #3b4258;
+      transform: translateY(-1px);
+    }
+    .segment-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .speaker-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 11px;
+      background: #252c3f;
+      color: #93c5fd;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tag {
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .tag-final {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .tag-partial {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .segment-text {
+      font-size: 16px;
+      line-height: 1.5;
+      color: #ffffff;
+      font-weight: 400;
+    }
+    .empty-state {
+      margin-top: 60px;
+      text-align: center;
+      color: var(--text-muted);
+      padding: 40px;
+      border: 1px dashed var(--card-border);
+      border-radius: 16px;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    button.btn {
+      background: #202636;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+    button.btn:hover {
+      background: #2b3348;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h2 style="font-size: 18px; font-weight: 700;">Live Transcript Stream</h2>
+      <span style="font-size: 13px; color: var(--text-muted);">ws://127.0.0.1:8771/transcript</span>
+    </div>
+    <div class="controls">
+      <button class="btn" onclick="clearList()">Clear Screen</button>
+      <div class="status-pill">
+        <span class="dot" id="dot"></span>
+        <span id="status">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="container">
+    <div class="empty-state" id="empty">
+      <h3>Waiting for live transcription...</h3>
+      <p>Start recording in Meetily Pro or speak into the microphone to stream segments live.</p>
+    </div>
+  </main>
+
+  <script>
+    const WS_URL = "ws://127.0.0.1:8771/transcript";
+    const HISTORY_URL = "http://127.0.0.1:8771/transcript/history";
+    const container = document.getElementById("container");
+    const emptyState = document.getElementById("empty");
+    const statusText = document.getElementById("status");
+    const dot = document.getElementById("dot");
+
+    let lastSeq = null;
+    let ws = null;
+
+    async function loadHistory() {
+      try {
+        const res = await fetch(HISTORY_URL);
+        if (res.ok) {
+          const items = await res.json();
+          items.forEach(appendSegment);
+        }
+      } catch (e) {
+        console.warn("Could not fetch initial history:", e);
+      }
+    }
+
+    function appendSegment(msg) {
+      if (emptyState) emptyState.style.display = "none";
+      lastSeq = msg.seq ?? lastSeq;
+
+      const card = document.createElement("div");
+      card.className = "segment-card";
+
+      const start = (msg.start ?? 0).toFixed(1);
+      const end = (msg.end ?? 0).toFixed(1);
+      const speaker = msg.speaker || "host";
+      const isFinal = msg.final !== false;
+
+      card.innerHTML = `
+        <div class="segment-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="speaker-badge">${speaker}</span>
+            <span>#${msg.seq ?? "?"} &bull; ${start}s &ndash; ${end}s</span>
+          </div>
+          <span class="tag ${isFinal ? 'tag-final' : 'tag-partial'}">${isFinal ? 'FINAL' : 'PARTIAL'}</span>
+        </div>
+        <div class="segment-text">${escapeHtml(msg.text || "")}</div>
+      `;
+
+      container.appendChild(card);
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function clearList() {
+      container.innerHTML = "";
+    }
+
+    function connect() {
+      const url = lastSeq !== null ? `${WS_URL}?since=${lastSeq}` : WS_URL;
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        statusText.textContent = "Live Connected";
+        dot.classList.add("connected");
+      };
+
+      ws.onclose = () => {
+        statusText.textContent = "Reconnecting...";
+        dot.classList.remove("connected");
+        setTimeout(connect, 1500);
+      };
+
+      ws.onerror = () => ws.close();
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "segment") {
+            appendSegment(data);
+          }
+        } catch (err) {
+          console.error("Invalid WS message:", err);
+        }
+      };
+    }
+
+    loadHistory().then(connect);
+  </script>
+</body>
+</html>
