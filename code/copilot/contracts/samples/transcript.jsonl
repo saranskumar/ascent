@@ -1,0 +1,19 @@
+{"id": "seg-0001", "text": "Okay, let's get started. Today I want to walk through why the login service kept falling over last week.", "start": 0.0, "end": 5.2, "speaker": "host"}
+{"id": "seg-0002", "text": "So most of you know our setup, the gateway calls the auth worker, which calls the user database.", "start": 5.6, "end": 11.0, "speaker": "host"}
+{"id": "seg-0003", "text": "On Tuesday the error rate on the auth worker spiked, HTTP 504s went up to about twelve percent.", "start": 11.4, "end": 17.3, "speaker": "host"}
+{"id": "seg-0004", "text": "Our threshold is one percent, so that's way over.", "start": 17.6, "end": 20.4, "speaker": "host"}
+{"id": "seg-0005", "text": "What happened is the database got slow, and every caller kept retrying, so the slowness spread to everything upstream.", "start": 20.9, "end": 27.8, "speaker": "host"}
+{"id": "seg-0006", "text": "That's a classic cascading failure.", "start": 28.1, "end": 30.0, "speaker": "host"}
+{"id": "seg-0007", "text": "So the fix I want to propose is the circuit breaker pattern. Let me explain how it works.", "start": 30.6, "end": 35.9, "speaker": "host"}
+{"id": "seg-0008", "text": "A circuit breaker has three states: closed, open and half open.", "start": 36.3, "end": 40.4, "speaker": "host"}
+{"id": "seg-0009", "text": "When it's closed, calls go through normally. If too many fail, it trips to open and fails fast without calling the database at all.", "start": 40.8, "end": 48.1, "speaker": "host"}
+{"id": "seg-0010", "text": "After a timeout it goes half open and lets a few test calls through to see if things recovered.", "start": 48.5, "end": 54.0, "speaker": "host"}
+{"id": "seg-0011", "text": "Sorry, can you repeat what half open means?", "start": 54.6, "end": 57.0, "speaker": "guest"}
+{"id": "seg-0012", "text": "Sure, half open is basically a trial period, a couple of requests go through and if they succeed it closes again.", "start": 57.4, "end": 63.5, "speaker": "host"}
+{"id": "seg-0013", "text": "We'd also add retries with exponential backoff and jitter, so clients don't all retry at the same moment.", "start": 64.0, "end": 70.2, "speaker": "host"}
+{"id": "seg-0014", "text": "If you plot it, the retry delay doubles each time, one, two, four, eight seconds, with a bit of randomness.", "start": 70.6, "end": 77.0, "speaker": "host"}
+{"id": "seg-0015", "text": "Okay, any questions on the plan so far?", "start": 77.5, "end": 79.8, "speaker": "host"}
+{"id": "seg-0016", "text": "Not on that, but unrelated, has anyone tried the new split keyboard Priya brought in?", "start": 80.4, "end": 85.1, "speaker": "guest"}
+{"id": "seg-0017", "text": "Ha, yes, it's the one that looks like a mechanical keyboard cut in half, with a thumb cluster.", "start": 85.5, "end": 90.6, "speaker": "host"}
+{"id": "seg-0018", "text": "Anyway, next steps. I'll write up the circuit breaker design and we review it on Friday.", "start": 91.2, "end": 96.4, "speaker": "host"}
+{"id": "seg-0019", "text": "Thanks everyone.", "start": 96.8, "end": 98.0, "speaker": "host"}

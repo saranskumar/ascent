@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- Dev-only stand-in for part 3: overlay (left) + canvas (right) in one page.
+     Open this file in a browser while mock_engine or engine runs. Not the real GUI. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Co-pilot preview</title>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; display: flex; height: 100vh; background: #111; color: #eee; }
+  #overlay { width: 360px; overflow-y: auto; padding: 12px; border-right: 1px solid #333; }
+  #canvas { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
+  #canvas img { max-width: 100%; max-height: 100%; }
+  .sug { background: #1d1d1d; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .sug.elevated { outline: 2px solid #e0a030; }
+  .topic { font-weight: 600; }
+  .reason { color: #999; font-size: 12px; margin: 2px 0 8px; }
+  .thumbs img { width: 100px; margin: 0 4px 4px 0; cursor: pointer; border-radius: 4px; }
+  .thumbs img:hover { outline: 2px solid #4af; }
+  button { float: right; background: none; color: #888; border: 0; cursor: pointer; }
+  #status { color: #888; font-size: 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="overlay"><div id="status">connecting...</div><div id="list"></div></div>
+<div id="canvas"><span style="color:#444">canvas (empty)</span></div>
+<script>
+const URL_WS = "ws://127.0.0.1:8772/suggestions";
+let lastSeq = null, ws;
+
+function connect() {
+  ws = new WebSocket(lastSeq === null ? URL_WS : `${URL_WS}?since=${lastSeq}`);
+  ws.onopen = () => status.textContent = "connected";
+  ws.onclose = () => { status.textContent = "disconnected, retrying..."; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    lastSeq = m.seq ?? lastSeq;
+    if (m.type === "suggestion") show(m);
+  };
+}
+
+function show(s) {
+  const el = document.createElement("div");
+  el.className = "sug " + s.priority;
+  el.innerHTML = `<button title="dismiss">✕</button><div class="topic"></div><div class="reason"></div><div class="thumbs"></div>`;
+  el.querySelector(".topic").textContent = s.topic;
+  el.querySelector(".reason").textContent = s.reason;
+  el.querySelector("button").onclick = () => {
+    ws.send(JSON.stringify({ type: "dismiss", suggestion_id: s.id }));
+    el.remove();
+  };
+  for (const im of s.images) {
+    const t = document.createElement("img");
+    t.src = im.thumb_url; t.title = im.caption;
+    t.onclick = () => {
+      canvas.innerHTML = `<img src="${im.url}">`;
+      ws.send(JSON.stringify({ type: "select", suggestion_id: s.id, image_id: im.id }));
+    };
+    el.querySelector(".thumbs").appendChild(t);
+  }
+  list.prepend(el);
+  if (s.expires_in) setTimeout(() => el.remove(), s.expires_in * 1000);
+}
+
+connect();
+</script>
+</body>
+</html>

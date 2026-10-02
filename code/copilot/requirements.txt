@@ -1,0 +1,2 @@
+aiohttp>=3.9
+pillow          # mock_engine placeholder images

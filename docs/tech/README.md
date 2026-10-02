@@ -11,6 +11,7 @@
 | [screen-capture.md](screen-capture.md) | Screenshot capture and selection: MVP based on lecture-to-notes, presenting vs watching, content-area detection plan |
 | [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: why it's blocked, the four options, status on hold |
 | [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's exact summary prompts, template and settings (from its source), to make our summary match |
+| [code/copilot/](../../code/copilot/README.md) | Live co-pilot code: the 3-part split (transcript / image engine / GUI), message contract, mocks |
 
 ## Current plan (short)
 
