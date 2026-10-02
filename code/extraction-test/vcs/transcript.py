@@ -95,7 +95,13 @@ def screen_lines(shots: list[dict], offset: float = 0.0
     for s in sorted(shots, key=lambda s: s["start"]):
         t = s["start"] + offset
         span = f"on screen {mmss(t)}-{mmss(s['end'] + offset)}"
-        if s.get("type") == "diagram":
+        if s.get("type") == "diagram" and s.get("description"):
+            # Described by the local VLM: plain text, no image attached.
+            body = f'Diagram. Description: "{s["description"][:MAX_SCREEN_TEXT]}"'
+            text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
+            if text:
+                body += f' OCR: "{text[:MAX_SCREEN_TEXT]}"'
+        elif s.get("type") == "diagram":
             d = DiagramRef(len(diagrams) + 1, s, t)
             diagrams.append(d)
             body = f"Diagram or image-heavy screen, see image {d.number}."

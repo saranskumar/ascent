@@ -24,6 +24,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from . import vlm
 from .ocr import ocr_image
 
 
@@ -220,7 +221,7 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
         alnum = len(re.sub(r"\W", "", best.text))
         is_diagram = (alnum < p.diagram_chars
                       and ink_fraction(cv2.imread(str(img_dir / name)), p.crop_ratio) >= p.diagram_ink)
-        shots.append({
+        shot = {
             "id": n,
             "image": f"images/{name}",
             "start": round(start, 2),
@@ -228,7 +229,13 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
             "type": "diagram" if is_diagram else "slide",
             "text": best.text,
             "merged_from": len(members),
-        })
+        }
+        if is_diagram and vlm.enabled():          # little OCR text -> ask the local VLM
+            try:
+                shot["description"] = vlm.describe(img_dir / name)
+            except Exception as e:                # keep going: Gemini gets the image instead
+                log(f"screen {n}: local VLM failed ({e}); image will be sent as before")
+        shots.append(shot)
     shutil.rmtree(cand_dir, ignore_errors=True)
 
     doc = {
