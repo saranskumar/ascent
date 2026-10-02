@@ -1,0 +1,1906 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Meetily Gateway API",
+    "description": "Local loopback HTTP API to drive a running Meetily desktop app. Generated; do not edit by hand.",
+    "version": "1.11.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-required-scope": null
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "get_openapi.json",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "read",
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/config/{section}": {
+      "get": {
+        "operationId": "get_v1_config_section",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-required-scope": "read"
+      },
+      "put": {
+        "operationId": "put_v1_config_section",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "write"
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "operationId": "get_v1_devices",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true
+      }
+    },
+    "/v1/jobs": {
+      "get": {
+        "operationId": "get_v1_jobs",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/jobs/diarization": {
+      "post": {
+        "operationId": "post_v1_jobs_diarization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDiarizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "write",
+        "x-meetily-idempotent": false,
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/jobs/import": {
+      "post": {
+        "operationId": "post_v1_jobs_import",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": false,
+        "x-meetily-required-scope": "write"
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "operationId": "get_v1_jobs_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": true,
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/jobs/{id}/cancel": {
+      "post": {
+        "operationId": "post_v1_jobs_id_cancel",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-required-scope": "write",
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/jobs/{id}/pause": {
+      "post": {
+        "operationId": "post_v1_jobs_id_pause",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "write",
+        "x-meetily-read-only": false,
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/jobs/{id}/resume": {
+      "post": {
+        "operationId": "post_v1_jobs_id_resume",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "write",
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/jobs/{id}/retry": {
+      "post": {
+        "operationId": "post_v1_jobs_id_retry",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": false,
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "write"
+      }
+    },
+    "/v1/jobs/{id}/wait": {
+      "get": {
+        "operationId": "get_v1_jobs_id_wait",
+        "parameters": [
+          {
+            "name": "timeout",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/meetings": {
+      "get": {
+        "operationId": "get_v1_meetings",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/meetings/{id}": {
+      "get": {
+        "operationId": "get_v1_meetings_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-read-only": true
+      },
+      "delete": {
+        "operationId": "delete_v1_meetings_id",
+        "parameters": [
+          {
+            "name": "delete_files",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "delete"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "delete",
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": true
+      },
+      "patch": {
+        "operationId": "patch_v1_meetings_id",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameMeetingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": false,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "write",
+        "x-meetily-read-only": false
+      }
+    },
+    "/v1/meetings/{id}/export": {
+      "get": {
+        "operationId": "get_v1_meetings_id_export",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true
+      }
+    },
+    "/v1/meetings/{id}/speaker-labels": {
+      "put": {
+        "operationId": "put_v1_meetings_id_speaker_labels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerLabelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "write",
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/meetings/{id}/summary": {
+      "get": {
+        "operationId": "get_v1_meetings_id_summary",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      },
+      "put": {
+        "operationId": "put_v1_meetings_id_summary",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverwriteSummaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "write",
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/meetings/{id}/summary/operations/{operation_id}": {
+      "get": {
+        "operationId": "get_v1_meetings_id_summary_operations_operation_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/meetings/{id}/summary/operations/{operation_id}/wait": {
+      "get": {
+        "operationId": "get_v1_meetings_id_summary_operations_operation_id_wait",
+        "parameters": [
+          {
+            "name": "timeout_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/meetings/{id}/summary/regenerate": {
+      "post": {
+        "operationId": "post_v1_meetings_id_summary_regenerate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegenerateSummaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": false,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "write"
+      }
+    },
+    "/v1/meetings/{id}/transcript": {
+      "get": {
+        "operationId": "get_v1_meetings_id_transcript",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "get_v1_models",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true
+      }
+    },
+    "/v1/pair/request": {
+      "post": {
+        "operationId": "post_v1_pair_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": null,
+        "x-meetily-idempotent": false,
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/pair/{id}": {
+      "get": {
+        "operationId": "get_v1_pair_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": null
+      }
+    },
+    "/v1/recording": {
+      "get": {
+        "operationId": "get_v1_recording",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/recording/pause": {
+      "post": {
+        "operationId": "post_v1_recording_pause",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "record"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": false,
+        "x-meetily-required-scope": "record",
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/recording/resume": {
+      "post": {
+        "operationId": "post_v1_recording_resume",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "record"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "record"
+      }
+    },
+    "/v1/recording/start": {
+      "post": {
+        "operationId": "post_v1_recording_start",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRecordingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "record"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": false,
+        "x-meetily-read-only": false,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "record"
+      }
+    },
+    "/v1/recording/stop": {
+      "post": {
+        "operationId": "post_v1_recording_stop",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "record"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "record",
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/recording/wait": {
+      "get": {
+        "operationId": "get_v1_recording_wait",
+        "parameters": [
+          {
+            "name": "until",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "timeout",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "operationId": "get_v1_search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true
+      }
+    },
+    "/v1/webhooks": {
+      "get": {
+        "operationId": "get_v1_webhooks",
+        "parameters": [
+          {
+            "name": "all",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-required-scope": "read"
+      },
+      "post": {
+        "operationId": "post_v1_webhooks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhookRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": false,
+        "x-meetily-idempotent": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/webhooks/{id}": {
+      "get": {
+        "operationId": "get_v1_webhooks_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true,
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read"
+      },
+      "delete": {
+        "operationId": "delete_v1_webhooks_id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-destructive": false,
+        "x-meetily-required-scope": "read",
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": false
+      }
+    },
+    "/v1/webhooks/{id}/deliveries": {
+      "get": {
+        "operationId": "get_v1_webhooks_id_deliveries",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-idempotent": true,
+        "x-meetily-read-only": true,
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false
+      }
+    },
+    "/v1/webhooks/{id}/test": {
+      "post": {
+        "operationId": "post_v1_webhooks_id_test",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-read-only": false,
+        "x-meetily-destructive": false,
+        "x-meetily-idempotent": false,
+        "x-meetily-required-scope": "read"
+      }
+    },
+    "/v1/whoami": {
+      "get": {
+        "operationId": "get_v1_whoami",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          }
+        ],
+        "x-meetily-required-scope": "read",
+        "x-meetily-destructive": false,
+        "x-meetily-read-only": true,
+        "x-meetily-idempotent": true
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ConfigDto": {
+        "type": "object",
+        "description": "GET /v1/config/{section} (T-10). `config` is the section's live value\nexactly as the desktop UI's own `get_*_config` Tauri command already\nreturns it (defaults merged with the on-disk file) - see \"## T-10 NOTES\"\nfor the section-name map and why this ended up app-state-based rather\nthan pool-based.",
+        "required": [
+          "section",
+          "config",
+          "withheld"
+        ],
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "section": {
+            "type": "string"
+          },
+          "withheld": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "T59: the field paths withheld from `config` on this read (each one is\npresent in `config` carrying the `[withheld]` marker). Empty for every\nsection today - a held-back field is LISTED here, never silently\ndropped, so a client can tell \"withheld\" from \"unset\"."
+          }
+        }
+      },
+      "CreateWebhookRequest": {
+        "type": "object",
+        "required": [
+          "url",
+          "events"
+        ],
+        "properties": {
+          "delivery_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceDto": {
+        "type": "object",
+        "description": "GET /v1/devices (T-10). Mirrors `AudioDevice` - a plain name +\ninput/output tag, no internal capture-stream state.",
+        "required": [
+          "name",
+          "device_type"
+        ],
+        "properties": {
+          "device_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceListResponse": {
+        "type": "object",
+        "description": "GET /v1/devices response envelope.",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceDto"
+            }
+          }
+        }
+      },
+      "ExportDto": {
+        "type": "object",
+        "description": "GET /v1/meetings/{id}/export?format=json - the buffered JSON export body.",
+        "required": [
+          "meeting",
+          "transcript"
+        ],
+        "properties": {
+          "meeting": {
+            "$ref": "#/components/schemas/MeetingDto"
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SummaryDto"
+              }
+            ]
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/TranscriptResponse"
+          }
+        }
+      },
+      "JobDto": {
+        "type": "object",
+        "description": "GET /v1/jobs (T-10). Mirrors `JobSnapshot` field for field - the same\nfrontend-visible shape already emitted over `job-*` Tauri events and\n`jobs_list` - so the Gateway's job list matches what the desktop app\nitself sees.",
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "resource_class",
+          "display_title",
+          "provider",
+          "stage",
+          "progress",
+          "created_at",
+          "is_retryable",
+          "origin"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_retryable": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "meeting_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "description": "PROVENANCE: where the job was initiated (desktop vs agent-api). Lets an\nautomation client filter its own jobs and the UI label them."
+          },
+          "progress": {
+            "type": "number",
+            "format": "float"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "requested_speaker_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "resource_class": {
+            "type": "string"
+          },
+          "retry_manifest": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string"
+          },
+          "superseded_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "JobIdResponse": {
+        "type": "object",
+        "description": "POST /v1/jobs/diarization and POST /v1/jobs/{id}/retry (T-14) response\nbody - both commands return a new `JobId` (jobs/types.rs - a plain\n`String`).",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          }
+        }
+      },
+      "JobListResponse": {
+        "type": "object",
+        "description": "GET /v1/jobs response envelope.",
+        "required": [
+          "jobs"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobDto"
+            }
+          }
+        }
+      },
+      "MeetingDto": {
+        "type": "object",
+        "description": "One meeting's metadata, no transcript body. Used by both the list and\nsingle-meeting endpoints.",
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "MeetingListResponse": {
+        "type": "object",
+        "description": "GET /v1/meetings - a page of `MeetingDto`, offset/limit slice applied in\nthe handler (repositories::meeting::get_meetings has no SQL LIMIT/OFFSET\n- fine at local scale, see T-09 NOTES).",
+        "required": [
+          "meetings",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "meetings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeetingDto"
+            }
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ModelDto": {
+        "type": "object",
+        "description": "GET /v1/models (T-10). Deliberately drops `ModelInfo::path` (a local\nfilesystem path - would leak host directory/username layout over the\nnetwork API) and `source_url`; every other field is user-facing metadata\nthe desktop UI already shows. Read-only projection - ADR 0009: no\ndownload/delete route exists (gateway_route_exclusion.rs guards that).",
+        "required": [
+          "name",
+          "size_mb",
+          "accuracy",
+          "speed",
+          "status",
+          "description",
+          "is_custom"
+        ],
+        "properties": {
+          "accuracy": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_custom": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_mb": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "speed": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelListResponse": {
+        "type": "object",
+        "description": "GET /v1/models response envelope.",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelDto"
+            }
+          }
+        }
+      },
+      "OverwriteSummaryRequest": {
+        "type": "object",
+        "description": "PUT /v1/meetings/{id}/summary (T-12a) request body.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "PairRequestBody": {
+        "type": "object",
+        "required": [
+          "client_name",
+          "scopes"
+        ],
+        "properties": {
+          "client_name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RecordingStateDto": {
+        "type": "object",
+        "description": "GET /v1/recording (T-13a; extended T-13b). `state` is derived from the\nsame static/manager accessors the desktop app's own recording-status\npolling reads - see \"## T-13b NOTES\" for the extended precedence\n(stopping > paused > recording > idle) and `active_meeting_id`.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "active_meeting_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "T2: the reason the most recent recording START failed, if any. `null`\nwhen the last start succeeded or none has been attempted - lets an agent\npolling this endpoint after a failed start learn WHY instead of seeing a\nbare \"idle\". Cleared on the next successful start."
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "RegenerateResponse": {
+        "type": "object",
+        "description": "POST /v1/meetings/{id}/summary/regenerate (T-12b) response body -\nreturned with 202 Accepted, since the summary is generated by a\nbackground task (see SummaryService::process_transcript_background).\nT28a: a regeneration has ONE identity, `operation_id`, minted at acceptance\n(before its preparation, so a preparation failure is reported against it\nand never as a 202). `run_id` is null at acceptance - no run exists yet -\nand `state` is `preparing`. `status_url`/`wait_url` are the operation's own\nroutes (T28b; they 404 until it lands). `process_id` is the pre-T28a field,\nkept for one release as a duplicate of `meeting_id`.",
+        "required": [
+          "operation_id",
+          "app_instance_id",
+          "meeting_id",
+          "state",
+          "status_url",
+          "wait_url",
+          "process_id"
+        ],
+        "properties": {
+          "app_instance_id": {
+            "type": "string"
+          },
+          "meeting_id": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "process_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "status_url": {
+            "type": "string"
+          },
+          "wait_url": {
+            "type": "string"
+          }
+        }
+      },
+      "RegenerateSummaryRequest": {
+        "type": "object",
+        "description": "POST /v1/meetings/{id}/summary/regenerate (T-12b) request body. All\nfields are optional overrides - anything omitted falls back to the same\ndefaults `api_process_transcript` uses (see gateway/routes/meetings.rs\n`regenerate_summary`).",
+        "properties": {
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RenameMeetingRequest": {
+        "type": "object",
+        "description": "PATCH /v1/meetings/{id} (T-12a) request body.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "description": "GET /v1/search?q= response envelope.",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchResultDto"
+            }
+          }
+        }
+      },
+      "SearchResultDto": {
+        "type": "object",
+        "description": "GET /v1/search?q=. One matching row.",
+        "required": [
+          "meeting_id",
+          "title",
+          "match_context",
+          "timestamp"
+        ],
+        "properties": {
+          "audio_start_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "match_context": {
+            "type": "string"
+          },
+          "meeting_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "SpeakerLabelsRequest": {
+        "type": "object",
+        "description": "PUT /v1/meetings/{id}/speaker-labels (T-12c) request body - an arbitrary\n{clusterKey -> displayName} map, converted in the handler\n(gateway/routes/meetings.rs `set_speaker_labels`) to\n`Vec<MeetingSpeakerTagPayload>` and forwarded to\n`audio::diarization::commands::apply_meeting_speaker_tags`. NOT\n`config::save_meeting_speaker_labels`'s narrower fixed host/guest shape -\nsee \"## T-12c NOTES\" in the task doc for why.",
+        "required": [
+          "labels"
+        ],
+        "properties": {
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "StartRecordingRequest": {
+        "type": "object",
+        "description": "POST /v1/recording/start (T-13b) request body. `consent_attested` is\naccepted but a NO-OP in this task - full consent attestation is T-33\n(enterprise, deferred).",
+        "properties": {
+          "consent_attested": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "meeting_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mic_device_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "system_device_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SubmitDiarizationRequest": {
+        "type": "object",
+        "description": "POST /v1/jobs/diarization (T-14) request body. `speaker_count` mirrors\n`jobs_submit_diarization_rerun`'s `requested_speaker_count` (jobs/\ncommands.rs) - `None` re-runs in auto mode, `Some(n)` forces exactly `n`\nspeakers.",
+        "required": [
+          "meeting_id"
+        ],
+        "properties": {
+          "meeting_id": {
+            "type": "string"
+          },
+          "speaker_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "SummaryDto": {
+        "type": "object",
+        "description": "GET /v1/meetings/{id}/summary. `result` is the summary process's stored\nJSON, parsed. A value that fails to parse is surfaced as status `failed` with\nan error (parity with the desktop reader), not carried through as raw JSON.",
+        "required": [
+          "meeting_id",
+          "status",
+          "updated_at"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meeting_id": {
+            "type": "string"
+          },
+          "regeneration_failed": {
+            "type": "boolean",
+            "description": "P1-1: true when the latest regeneration FAILED but a prior summary was\nrestored (`status` stays `completed`, `result` holds the old summary), so\nan agent is not told \"completed\" over a stale summary. Omitted when false\nso a normal `summary.completed` GET is byte-identical to before."
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "TranscriptResponse": {
+        "type": "object",
+        "description": "GET /v1/meetings/{id}/transcript.",
+        "required": [
+          "meeting_id",
+          "title",
+          "segments"
+        ],
+        "properties": {
+          "meeting_id": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSegmentDto"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TranscriptSegmentDto": {
+        "type": "object",
+        "description": "One transcript segment. Mirrors `api::api::MeetingTranscript` field for\nfield (that is what `api_get_meeting` already returns to the desktop\napp), owned separately so the Gateway's wire contract can evolve on its\nown.",
+        "required": [
+          "id",
+          "text",
+          "timestamp"
+        ],
+        "properties": {
+          "assigned_meeting_speaker_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "audio_end_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "audio_start_time": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "detected_meeting_speaker_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "duration": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "speaker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "words": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "WhoamiResponse": {
+        "type": "object",
+        "description": "GET /v1/whoami.",
+        "required": [
+          "token_id",
+          "scopes",
+          "license_tier",
+          "server_version"
+        ],
+        "properties": {
+          "license_tier": {
+            "type": "string",
+            "description": "Best-effort license tier - see \"## T-09 NOTES\" for how this is\nresolved without a live Tauri `AppHandle` (data-plane handlers never\ncall `deps.app()`)."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "server_version": {
+            "type": "string",
+            "description": "The running app/gateway version (`CARGO_PKG_VERSION`). A client (the\nMCP CLI) compares this to its own version to detect a stale-binary\nskew; it is advisory only and never gates a request (T9, P2-5)."
+          },
+          "token_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

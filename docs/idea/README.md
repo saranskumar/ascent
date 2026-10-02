@@ -1,5 +1,7 @@
 ﻿# Meetily Visual Copilot - Idea
 
+> **Status update, Oct 2 (hackathon day):** Feature 1 (screen-grounded summary) is the priority and is being built as a Meetily Pro workflow that writes the enriched summary back into Meetily. Feature 2 (live Visual Copilot) is **on hold**: Meetily Pro does not expose the transcript until a recording stops (`409 recording_in_progress`). See [tech/summary-pipeline.md](../tech/summary-pipeline.md), [tech/copilot-live-transcript.md](../tech/copilot-live-transcript.md) and [tech/meetily-api-findings.md](../tech/meetily-api-findings.md). The text below is the original registration pitch.
+
 Detailed problem/solution write-up used for the PPT: **[problem-solution.md](problem-solution.md)** (adapted from `drops/initial_idea.md`).
 
 ## Core framing (one sentence)
