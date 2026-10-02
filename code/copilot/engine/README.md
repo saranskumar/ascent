@@ -1,4 +1,4 @@
-# Part 2: Image engine (Saran)
+# Part 2: Image engine (Shreevardhan)
 
 Read segments, decide when a visual would help, find 2–3 images, and publish `suggestion` messages on `ws://127.0.0.1:8772/suggestions`. Image files go in `.cache/images` and are served at `http://127.0.0.1:8772/images/`.
 

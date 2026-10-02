@@ -3,7 +3,7 @@
 This is the only thing the three parts share. If you change it, tell the others and update `messages.py`, the samples and the mocks in the same commit.
 
 ```text
- 1. transcript (Hari) ──segments──► 2. engine (Saran) ──suggestions──► 3. GUI (Mahreen)
+ 1. transcript (Hari) ──segments──► 2. engine (Shreevardhan) ──suggestions──► 3. GUI (Mahreen)
     ws :8771/transcript                ws :8772/suggestions   ◄──select / dismiss──
                                        http :8772/images/…
 ```
@@ -66,4 +66,4 @@ The engine uses these to rank images and to stop suggesting the same topic again
 ## Samples
 
 - `samples/transcript.jsonl`: a scripted ~100 s talk (outage → circuit breaker → backoff → an off-topic keyboard). `mock_transcript` replays it.
-- `samples/suggestions.jsonl`: what a good engine *should* produce for that talk, with timings. `mock_engine` replays it, and Saran can use it as a rough target.
+- `samples/suggestions.jsonl`: what a good engine *should* produce for that talk, with timings. `mock_engine` replays it, and Shreevardhan can use it as a rough target.

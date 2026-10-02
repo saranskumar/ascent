@@ -1,4 +1,4 @@
-"""Part 2 - image engine (Saran).
+"""Part 2 - image engine (Shreevardhan).
 
 Reads Segment messages from part 1, decides when a visual would help, finds images, and serves
 Suggestion messages on ws://127.0.0.1:8772/suggestions (+ GET /suggestions/history).
@@ -33,7 +33,7 @@ n_suggestions = 0
 
 
 # ---------------------------------------------------------------------------------------------
-# TODO(Saran): the engine.
+# TODO(Shreevardhan): the engine.
 # ---------------------------------------------------------------------------------------------
 def detect(window: list[Segment]) -> dict | None:
     """Recent speech -> {"topic", "query", "kind", "reason", "priority"} or None.

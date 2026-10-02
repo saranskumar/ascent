@@ -4,7 +4,7 @@ While the host is talking, the co-pilot notices when a picture would help, finds
 
 ```text
  1. transcript ──segments──► 2. image engine ──suggestions──► 3. GUI: overlay (host) ──click──► canvas (shared)
-    Hari                        Saran           ◄──select/dismiss──  Mahreen
+    Hari                        Shreevardhan    ◄──select/dismiss──  Mahreen
     ws :8771                    ws :8772 + http :8772/images
 ```
 
@@ -12,7 +12,7 @@ While the host is talking, the co-pilot notices when a picture would help, finds
 | --- | --- | --- |
 | [`contracts/`](contracts/) | everyone | **The interface.** Message formats, ports, sample data, and the shared stream helper. Read [contracts/README.md](contracts/README.md) first. |
 | [`transcript/`](transcript/) | Hari | Part 1. Runs in typing mode until the real source is plugged in. |
-| [`engine/`](engine/) | Saran | Part 2. Wiring done; `detect()` / `retrieve()` still to write. |
+| [`engine/`](engine/) | Shreevardhan | Part 2. Wiring done; `detect()` / `retrieve()` still to write. |
 | [`gui/`](gui/) | Mahreen | Part 3. Stack still to be chosen. |
 | [`mocks/`](mocks/) | everyone | Fake parts, so each part can be built without the others. |
 
