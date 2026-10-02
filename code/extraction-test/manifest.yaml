@@ -1,0 +1,15 @@
+manifest_version: 1
+id: visual-context-summary
+name: Visual Context Summary
+description: Captures the window you present or watch during a Meetily recording, extracts distinct slides with local OCR, and writes a summary of what was said and shown back into Meetily (original backed up). Gemini writes the summary.
+author: ASCENT'26 Track 1 team (github.com/saranskumar)
+language: python
+trigger: recording-ends
+scopes: [read, write]
+source_url: https://github.com/saranskumar/ascent
+homepage: https://github.com/saranskumar/ascent/tree/main/code/extraction-test
+ref: main
+entry: code/extraction-test/cli.py
+run: "cd code/extraction-test && pip install -r requirements.txt && python cli.py serve"
+meetily_min_version: "1.11.0"
+tags: [summary, screen-capture, slides, ocr, gemini, windows]

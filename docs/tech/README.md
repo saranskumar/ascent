@@ -10,12 +10,13 @@
 | [summary-pipeline.md](summary-pipeline.md) | Visual context summary: product goals, post-meeting pipeline, open decision (build on Meetily's summary vs our own) |
 | [screen-capture.md](screen-capture.md) | Screenshot capture and selection: MVP based on lecture-to-notes, presenting vs watching, content-area detection plan |
 | [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: why it's blocked, the four options, status on hold |
+| [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's exact summary prompts, template and settings (from its source), to make our summary match |
 
 ## Current plan (short)
 
-1. **Priority: Visual context summary**, built as a Meetily workflow: `recording.started` → capture the chosen window → `recording.stopped` / `summary.completed` → extract distinct screenshots → OCR (+ vision model for diagrams) → pair with transcript window → local LLM edit pass → `PUT` summary back into Meetily.
+1. **Priority: Visual context summary**, built as a Meetily workflow: `recording.started` → capture the chosen window → `recording.stopped` / `summary.completed` → extract distinct screenshots → local OCR (diagram images to Gemini) → interleave `[SCREEN]` lines into the transcript → **our own summary with Gemini using Meetily's template/prompts** → back up Meetily's summary → `PUT` ours into Meetily.
 2. **Live co-pilot: on hold.** Meetily returns `409 recording_in_progress` for transcripts during a recording; options are documented.
-3. **Everything runs locally** (privacy-first, like Meetily).
+3. **Capture, OCR and transcription stay local**; **LLM APIs (Gemini) are allowed** for summarisation (decided Oct 2).
 4. **Workflow requirements:** Subscribe → Verify HMAC → Deduplicate → Fetch → Act; least-privilege keys; no hard-coded secrets; handle Meetily offline; `manifest.yaml`.
 
 ```text
@@ -24,8 +25,8 @@ Meetily Pro (local Agent API, 127.0.0.1:8420)
    ▼
 Our workflow (local)
    capture window ─► distinct screenshots ─► OCR / VLM
-   fetch transcript + Meetily summary ─► pair screenshots with transcript windows
-   ─► local LLM edit pass ─► PUT /v1/meetings/{id}/summary
+   fetch transcript (+ back up Meetily summary) ─► interleave [SCREEN] lines by time
+   ─► Gemini summary (Meetily template) ─► PUT /v1/meetings/{id}/summary
 ```
 
 ## Stack (current)
@@ -36,8 +37,10 @@ Our workflow (local)
 | Capture | Windows Graphics Capture (`windows-capture`), 1–2 s sampling, or 1 fps window video |
 | Dedup | pHash (centre crop for MVP), two thresholds, text-containment merge (adapted from lecture-to-notes, MIT) |
 | OCR | Local CPU OCR (RapidOCR / Tesseract; lecture-to-notes uses Surya for high quality) |
-| Vision | Small local VLM via Ollama, diagram-heavy screenshots only |
-| LLM | Local via Ollama (model TBD) for the edit pass |
+| Vision | Gemini, diagram-heavy screenshots only |
+| LLM | Gemini API (key in env var), Meetily's prompts/template |
+| Picker | Small GUI listing open windows with thumbnails |
+| Code | `code/extraction-test/` |
 | Hardware | Laptop RTX 2050, 4 GB VRAM, shared with Meetily's own transcription |
 
 ## Experiments

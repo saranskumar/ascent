@@ -1,5 +1,13 @@
 # Visual Context Summary: Pipeline (Oct 2)
 
+> **Decided (Oct 2, later):**
+> - **We write our own summary** with **Gemini** (LLM APIs are fine for summarisation; transcription and screen capture stay local). One call over the full transcript with `[SCREEN]` lines interleaved; no chunking needed.
+> - **Cloud scope:** text (transcript + OCR) plus **diagram-heavy screenshot images only**. Other screenshots go as OCR text.
+> - **Format:** Meetily's own template and prompts, so the result looks native. See [meetily-summary-prompts.md](meetily-summary-prompts.md).
+> - **Meetily's own summary:** ignored, but **backed up to disk** before we `PUT` ours.
+> - **Trigger (decided Oct 2, after the live test):** write our summary on `recording.stopped` (after extraction and once the transcript has text). `summary.completed` only fires when Meetily generates its own summary, which hands-off recordings don't get; we use it as a guard to put ours back if Meetily replaces it.
+> - The "build on Meetily's summary" option and the local-model notes below are kept for reference.
+
 ## What we want (product view)
 
 - **Reader:** someone who **missed the meeting**.
@@ -48,7 +56,7 @@ flowchart TD
 
 ## Open questions
 
-- **Which model runs the final step?** Local (Ollama) or a cloud model with the user's own key. This changes the A/B more than anything.
+- ~~Which model runs the final step?~~ **Gemini** (decided). Exact model (Flash vs Pro) still to pick.
 - **Edit-pass budget:** cap the number of added points ("only add one if a reader would be confused without it"), or be thorough?
 - **Screenshots after the summary is written:** delete (text only survives) or keep so readers can open the original?
 - **Privacy:** beyond "watched window only", what else? (Not settled.)

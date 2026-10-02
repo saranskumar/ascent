@@ -1,0 +1,10 @@
+numpy
+pillow
+opencv-python-headless
+rapidfuzz
+rapidocr-onnxruntime
+pytest
+google-genai
+windows-capture; sys_platform == "win32"
+pyyaml
+jsonschema
