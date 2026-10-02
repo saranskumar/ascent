@@ -25,7 +25,7 @@ final segment ──► cue phrase? ──yes──► fast path: LLM now, focus
 | --- | --- |
 | [`detect.py`](detect.py) | Cue phrases (`let me explain`, `looks like a`, `if you plot`, `picture a`…), the LLM prompt, and a no-LLM fallback (words after the cue) |
 | [`llm.py`](llm.py) | `gemini-3.5-flash-lite` (~1 s), then `gemini-flash-lite-latest`, then local llama.cpp. A backend that fails or hits a rate limit is paused for a while instead of being retried on every call. |
-| [`search.py`](search.py) | Serper (Google Images, needs a key), DuckDuckGo (`ddgs`, keyless), Wikimedia Commons (keyless). Only the query is sent, never the transcript. |
+| [`search.py`](search.py) | Serper (Google Images, needs a key), DuckDuckGo (`ddgs`, keyless), Wikimedia Commons (keyless). Only the query is sent, never the transcript. For Wikimedia the query is simplified first (kind words like "diagram" dropped, then the first 3 words), and results whose title shares no word with the query are discarded. |
 | [`fetch.py`](fetch.py) | Downloads candidates and rejects: banners (aspect > 2.5), images too small, stock-photo sites (watermarks), blank images, files that aren't images, and near-duplicates (also of images shown earlier). Saves a JPEG of max 1600 px plus a 320×200 thumbnail. |
 | [`main.py`](main.py) | `Engine` (paths, topic cooldown, upgrading to elevated, feedback) and the server wiring |
 | [`replay.py`](replay.py) | Runs the engine on a transcript file with no servers, and writes a `.cache/replay.html` contact sheet |
