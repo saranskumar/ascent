@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KAI — Inclusive access</title>
+<style>
+  :root{
+    --bg:#fff; --fg:#111; --dim:#5c5c5c; --line:#ddd; --card:#f5f5f5;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  #deck{height:100vh;overflow:hidden;position:relative;}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:5vh 7vw;gap:.55rem;overflow:auto;
+  }
+  .slide.active{display:flex;}
+  .tag{color:var(--dim);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600;}
+  h1{font-size:clamp(1.5rem,3vw,2.2rem);margin:0;line-height:1.2;font-weight:650;}
+  .head{display:flex;align-items:center;gap:1.1rem;}
+  .origin{width:4.6rem;height:4.6rem;object-fit:cover;border-radius:4px;border:1px solid var(--line);background:var(--card);flex-shrink:0;}
+  .rows{display:flex;flex-direction:column;gap:.35rem;max-width:78ch;margin-top:.15rem;}
+  .row{
+    display:grid;grid-template-columns:15ch 1fr;gap:1rem;align-items:start;
+    padding:.6rem .9rem;background:var(--card);border:1px solid var(--line);border-radius:4px;
+    font-size:.92rem;line-height:1.38;
+  }
+  .row .k{color:var(--dim);font-size:.66rem;letter-spacing:.11em;text-transform:uppercase;font-weight:650;padding-top:.15rem;}
+  #hud{
+    position:fixed;bottom:1rem;right:1.2rem;color:var(--dim);font-size:.8rem;
+    font-variant-numeric:tabular-nums;z-index:5;
+  }
+  #hud kbd{border:1px solid var(--line);border-radius:3px;padding:0 .28rem;}
+  @media (max-width:800px){
+    .row{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div id="deck">
+
+  <section class="slide">
+    <div class="tag">A · Problem insight</div>
+    <div class="head">
+      <img class="origin" src="media/01-origin.jpg" alt="" onerror="this.remove()">
+      <h1>Problem &amp; User</h1>
+    </div>
+    <div class="rows">
+      <div class="row"><div class="k">User</div><div>A team member’s brother, with cerebral palsy. Observed directly. Reliable motor input is one reachable region of a phone he already owns. Speech is present but not consistently recognized. Overlapping motor + speech limits are common in cerebral palsy — not a one-off case.</div></div>
+      <div class="row"><div class="k">Gap</div><div>TalkBack still needs swipe gestures he cannot land. Voice Access still needs speech that is not recognized. Each current system assumes <em>one complete channel</em>. Short clips: those tools working for a single impairment, then breaking on this combination.</div></div>
+      <div class="row"><div class="k">Today</div><div>WhatsApp works — scroll, tap that region, send a voice note. Anything outside that set: Google Assistant after phrase-training (“call amma”), or a caregiver is called in to operate the device.</div></div>
+      <div class="row"><div class="k">Who else</div><div>Census 2011: 2.68 crore persons with disabilities; 8% recorded multiple disabilities. A rATA study estimated 24.5% of Indians had an assistive-tech need; unaffordability was the top barrier (36.9%). MouthPad (~$1,400, US-only, dental scan), foot trackballs, and AAC hardware exist. We build for the phone already in the user’s hand.</div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="tag">B · Validation and learning</div>
+    <h1>What we tested</h1>
+    <div class="rows">
+      <div class="row"><div class="k">Evidence</div><div>Direct observation of this user — and, through him, others with similar conditions. Not a survey. Not a persona. No written reviews yet; we will not invent them. Formal use of the built app with him is the next test, not a claim we have already run.</div></div>
+      <div class="row"><div class="k">The test</div><div>Event assumption: “an AI agent would solve this.” We tested it against his actual workflow. He already has a small set of reliable inputs. Google Assistant — itself an AI — already fails him. The bottleneck is mapping a dense service onto that residual set, not another model.</div></div>
+      <div class="row"><div class="k">What happened</div><div>OpenClaw added overhead, security risk, and latency. We dropped it. Zero AI. A deterministic engine ranks the page. Confirmation before anything consequential. Credibility = a named user, a real current workflow, and an architecture change that followed from that — not a completed beta.</div></div>
+      <div class="row"><div class="k">Still open</div><div>Whether he can complete more essential-service tasks independently than with WhatsApp, Assistant, and a caregiver. That is the test that still needs him in front of the built app.</div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="tag">C · Solution and value</div>
+    <h1>KAI — Capability Awareness Interface</h1>
+    <div class="rows">
+      <div class="row"><div class="k">Core value</div><div>Measure what this user can do, then map one task onto those residual abilities. Calibration produces a live profile. Touch, joystick, trackpad, switch-scan, and voice are composed — not offered as separate apps. Touch selects; voice, when usable, fills content. Adding voice alone is not the product.</div></div>
+      <div class="row"><div class="k">Scope we cut</div><div>The product is the <em>input layer</em>. We did not build a Voice Access clone or a trained recogniser. We did not make page-parsing / an agent the core — that is further out. We did not build a full accessible phone OS in 30 hours.</div></div>
+      <div class="row"><div class="k">Vs agents</div><div>OpenClaw, Google Astra, and NAI-style agents assume a clean instruction channel (speech or text). This user does not have one. Assistant already failed that bet. KAI is not an agent with a new skin.</div></div>
+      <div class="row"><div class="k">Why a remote</div><div>The intended surface is the smartphone he already uses. A full on-device shell is harder to test and finish here. So the 30-hour build refines the input layer on the phone and drives a computer — phone ↔ laptop — as the way to validate input without first shipping a phone OS.</div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="tag">D · Product and execution</div>
+    <h1>What you can try</h1>
+    <div class="rows">
+      <div class="row"><div class="k">Phone</div><div>Flutter: tap-or-hold entry, optional caregiver training, axis-gated calibration, a live profile (reach, methods, voice vocabulary, visual field, contrast). Four task shapes through four methods; touch-plus-voice on text. Confirm uses the measured method. Interrupt is always on screen.</div></div>
+      <div class="row"><div class="k">Laptop</div><div>Playwright reads a page’s accessibility tree. A heuristic ranks navigation vs information and can act. A demo relay can connect the phone to a mock service page. No LLM in that path.</div></div>
+      <div class="row"><div class="k">Trade-offs</div><div>Browser tree, not native OS apps. Primary surface is self-built mocks (Aperture Daily). Speech recognition is simulated on purpose so the room does not depend on a microphone. TTS / narration is not built.</div></div>
+      <div class="row"><div class="k">Variation</div><div>Judges can change the profile. The same task reshapes — including a floor of switch-scan. That is the reliability claim: not one prepared path, one runtime.</div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="tag">F · Continuation</div>
+    <h1>Results &amp; what comes next</h1>
+    <div class="rows">
+      <div class="row"><div class="k">Proven</div><div>We can measure a profile and reshape the same task to it. We can rank a page without an AI agent. The assumption that AI would solve his problem did not hold.</div></div>
+      <div class="row"><div class="k">Uncertain</div><div>Independent task completion with him on a live service. Whether real speech recognition works for him. Whether confirmation stays rare enough to trust.</div></div>
+      <div class="row"><div class="k">Next</div><div>Put the built input layer in front of him. If speech is added, it is a hosted recognizer, not a model we train. Then ordinary websites, not only mocks. Native on-phone shell after the input layer holds.</div></div>
+      <div class="row"><div class="k">After the event</div><div>He is the first tester. His network — people with similar conditions already known to the family — is the distribution path for feedback, not a market plan. We keep going on the devices they already have.</div></div>
+    </div>
+  </section>
+
+</div>
+<div id="hud"><span id="pos">1</span> / <span id="total"></span> · <kbd>←</kbd> <kbd>→</kbd> <kbd>Space</kbd></div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let i = 0;
+  document.getElementById('total').textContent = slides.length;
+
+  function show(n){
+    slides[i].classList.remove('active');
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides[i].classList.add('active');
+    document.getElementById('pos').textContent = i + 1;
+  }
+  show(0);
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); show(i - 1); }
+  });
+  document.addEventListener('click', e => {
+    if (e.target.closest('a,button,input,textarea,select')) return;
+    show(i + 1);
+  });
+</script>
+</body>
+</html>
