@@ -1,9 +1,14 @@
-"""Step (b): transcript + screenshots.json -> Gemini summary in Meetily's format."""
+"""Step (b): transcript + screenshots.json -> summary in Meetily's format.
+
+Two providers: a local Qwen through Ollama when VCS_SUMMARY_MODEL is set (nothing leaves the
+machine), otherwise Gemini."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
+import urllib.request
 from pathlib import Path
 
 from .prompts import build_system_prompt, build_user_prompt
@@ -49,7 +54,7 @@ def clean_output(text: str | None) -> str:
     if m:
         t = m.group(1).strip()
     if not t:
-        raise SummaryError("Gemini returned an empty summary")
+        raise SummaryError("the model returned an empty summary")
     return normalize_spacing(t)
 
 
@@ -86,11 +91,74 @@ def _client(api_key: str | None):
     return genai.Client(api_key=key, http_options=types.HttpOptions(timeout=TIMEOUT_MS))
 
 
+# ------------------------------------------------------------------ local (Ollama)
+def local_model() -> str:
+    """The local summary model ("" = use Gemini)."""
+    return os.environ.get("VCS_SUMMARY_MODEL", "").strip()
+
+
+def _local_url() -> str:
+    return os.environ.get("VCS_SUMMARY_URL", "http://127.0.0.1:11434/api/chat").strip()
+
+
+def _prepare_local_shots(shots: list[dict], shots_dir: Path, log) -> list[dict]:
+    """A text-only model can't look at images: every diagram needs a written description.
+    Describe the ones that lack it (local VLM if configured); otherwise fall back to OCR only."""
+    from . import vlm
+    out = []
+    for s in shots:
+        if s.get("type") == "diagram" and not s.get("description"):
+            s = dict(s)
+            if vlm.enabled():
+                try:
+                    s["description"] = vlm.describe(Path(shots_dir) / s["image"])
+                except Exception as e:  # noqa: BLE001
+                    log(f"screen {s.get('id')}: VLM failed ({e}); using OCR text only")
+            if not s.get("description"):
+                s["type"] = "slide"
+        out.append(s)
+    return out
+
+
+def summarize_local(segments: list[dict], screenshots_doc: dict, shots_dir: Path, *,
+                    offset: float = 0.0, info: dict | None = None, log=lambda *_: None,
+                    speaker_names: dict[str, str] | None = None, timeout: float = 900.0) -> str:
+    model = local_model()
+    shots = _prepare_local_shots(screenshots_doc.get("screenshots", []), shots_dir, log)
+    transcript_text, _ = build_input(segments, shots, offset, speaker_names)
+    if not transcript_text.strip():
+        raise SummaryError("transcript is empty; nothing to summarize")
+    options = {"temperature": TEMPERATURE,
+               "num_ctx": int(os.environ.get("VCS_SUMMARY_CTX", "16384")),
+               "num_predict": int(os.environ.get("VCS_SUMMARY_MAX_TOKENS", "2000"))}
+    gpu = os.environ.get("VCS_SUMMARY_NUM_GPU", os.environ.get("VCS_VLM_NUM_GPU", "")).strip()
+    if gpu:
+        options["num_gpu"] = int(gpu)
+    body = {"model": model, "stream": False, "keep_alive": 0, "options": options,
+            "messages": [{"role": "system", "content": build_system_prompt()},
+                         {"role": "user", "content": build_user_prompt(transcript_text)}]}
+    req = urllib.request.Request(_local_url(), data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            out = json.load(r)
+    except Exception as e:  # noqa: BLE001
+        raise SummaryError(f"local model {model} failed: {e}. Is Ollama running and the model "
+                           f"pulled (ollama pull {model})?") from e
+    text = clean_output((out.get("message") or {}).get("content"))
+    if info is not None:
+        info["model"] = model
+    return text
+
+
 def summarize(segments: list[dict], screenshots_doc: dict, shots_dir: Path, *,
               offset: float = 0.0, model: str | None = None, api_key: str | None = None,
               client=None, info: dict | None = None, log=lambda *_: None,
               sleep=time.sleep, speaker_names: dict[str, str] | None = None) -> str:
     """Return the cleaned summary. `info["model"]` is set to the model that answered."""
+    if local_model() and client is None:
+        return summarize_local(segments, screenshots_doc, shots_dir, offset=offset, info=info,
+                               log=log, speaker_names=speaker_names)
     from google.genai import errors, types
     shots = screenshots_doc.get("screenshots", [])
     transcript_text, diagrams = build_input(segments, shots, offset, speaker_names)

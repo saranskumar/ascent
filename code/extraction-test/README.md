@@ -80,15 +80,22 @@ session crashes the next capture natively (see `vcs/ocr.py: warm_up`).
 
 | Event | Action |
 | --- | --- |
-| `recording.started` | start capturing the window picked last time (Settings: auto capture) |
-| `recording.stopped` | stop the capture, extract screenshots, wait for the transcript, Gemini summary, back up Meetily's, `PUT` ours (Settings: auto write-back) |
+| `recording.started` | a popup (`vcs/picker.py`, same look as the web UI) asks which window to capture; **Skip** = no screen capture for this recording. Settings > Automation can switch it to "use the remembered window" or turn capture off |
+| `recording.stopped` | closes the window popup if it is still open; otherwise stops the capture and extracts screenshots, then a second popup (`vcs/prompt.py`) asks **Generate summary / Not now**. Generate makes the Gemini summary (speech + screens; Meetily's `summary/regenerate` can't see the screen, so it isn't used), then: Meetily has **no** summary -> ours is written (nothing to back up); Meetily **already has** one -> a popup asks **Replace with ours / Keep Meetily's / Decide later** (replacing backs Meetily's up first). Settings > Automation can generate right away instead of asking |
 | `recording.failed` / `error` / `stop_failed` | stop the capture and keep the screenshots (no summary) |
-| `summary.completed` / `summary.failed` | if Meetily replaced our summary, put ours back (its version backed up); if ours wasn't written yet (Meetily was busy), write it now |
+| `summary.completed` / `summary.failed` | Meetily generated its own after we stopped (or replaced ours): same rule, so if ours isn't in yet it is written when Meetily has none, otherwise you are asked. A summary you chose to keep is not asked about again until Meetily changes it |
+
+The Replace/Keep question is also a dialog on any page of the web UI (it polls every few seconds), so it
+can be answered in either place; answering one clears the other. With popups off, or on "Decide later",
+the browser is opened on the run if no UI tab is open (`open_web_prompt` setting). Pending
+questions are `data/<run>/pending_overwrite.json`; "Keep" writes `kept_meetily.json` with a fingerprint of
+Meetily's summary. Nothing in the automation overwrites a Meetily summary without that yes.
 
 Why we write on `recording.stopped` (decided Oct 2 after the live test): Meetily only sends
 `summary.completed` when it generates its own summary, and hands-off recordings didn't get one.
-The summary events are the guard: "is Meetily still showing ours?" is answered by a content
+The summary events are the guard: "is Meetily showing ours?" is answered by a content
 fingerprint, because Meetily reformats the Markdown it stores (table padding, bullets).
+(Oct 2, later: replacing a Meetily summary now needs the user's yes, see above.)
 
 Pattern: **Subscribe** (one webhook, kept in `data/webhook.json` with its `hmac_secret`, reused
 across restarts) → **Verify** (`X-Meetily-Signature: sha256=` HMAC-SHA256 of `"{X-Meetily-Timestamp}.{raw body}"`,
@@ -107,7 +114,7 @@ recording; the workflow itself needs only read + write).
 One-time setup in Meetily (Settings > Integrations):
 1. Advanced > Outgoing (webhooks): on, and add `127.0.0.1:8765` under **Local targets**.
 2. Allow the new destination ("Waiting for you", or Advanced > Destinations).
-3. In our UI, pick the window to watch once (New run). The Overview "Automation" panel shows
+3. Nothing to pick up front: the popup asks at each recording start (the New run page still works for a manual capture). The Overview "Automation" panel shows
    the subscription state and every event with what happened.
 
 `manifest.yaml` is the meetily-workflows catalog entry (validated against the catalog schema in

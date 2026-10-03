@@ -11,7 +11,8 @@ Differences from the original, for meetings:
   * layout (SSIM) merging is left out, as upstream warns that a wrong merge silently
     deletes content; text containment only, and only when both texts are long enough;
   * screens shown < min_dwell seconds are dropped AFTER merging;
-  * screens with very little OCR text are marked "diagram".
+  * screens with very little OCR text are marked "diagram" (described later by the local VLM,
+    in the job's Describe stage).
 """
 from __future__ import annotations
 
@@ -24,8 +25,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import vlm
+from .errors import Canceled
 from .ocr import ocr_image
+
+
+def _noop(*_):
+    pass
 
 
 @dataclass
@@ -42,6 +47,9 @@ class Params:
     diagram_ink: float = 0.08      # ...and at least this fraction of "ink" (title slides have ~none)
     chrome_share: float = 0.6      # OCR lines present in this share of groups are window chrome
     chrome_min_groups: int = 4
+    content_crop: bool = True      # OCR/describe only the part of the window that changes
+    content_line_share: float = 0.04   # a row/column is content if this share of it changed
+    content_min_area: float = 0.12     # smaller changing area: keep the whole window
 
 
 @dataclass
@@ -70,8 +78,69 @@ def hamming(a: np.ndarray, b: np.ndarray) -> int:
     return int(np.count_nonzero(a != b))
 
 
+# ------------------------------------------------------------------ content area
+class Activity:
+    """Which part of the window changes during the capture.
+
+    A browser's tabs, address bar, bookmarks and side panels stay still while the video or the
+    slides change; their text (tab titles like "ChatGPT", URLs) must not reach the summary as if
+    it had been shown in the meeting. Pixels that changed in at least two sampled transitions are
+    "active"; the content box spans the rows/columns with enough active pixels. Counting absolute
+    changes (not a share of all transitions) keeps rarely-changing slides from losing to a small,
+    always-moving tile."""
+
+    WIDTH = 160                     # low-res map; plenty for finding bands of chrome
+
+    def __init__(self):
+        self.prev = None
+        self.count = None
+        self.pairs = 0
+        self.shape: tuple[int, int] | None = None
+
+    def add(self, frame) -> None:
+        h, w = frame.shape[:2]
+        self.shape = (h, w)
+        sh = max(1, int(h * self.WIDTH / w))
+        g = cv2.cvtColor(cv2.resize(frame, (self.WIDTH, sh), interpolation=cv2.INTER_AREA),
+                         cv2.COLOR_BGR2GRAY).astype(np.int16)
+        if self.prev is not None and self.prev.shape == g.shape:
+            d = (np.abs(g - self.prev) > 20).astype(np.int32)
+            self.count = d if self.count is None else self.count + d
+            self.pairs += 1
+        self.prev = g
+
+    def box(self, p: "Params") -> tuple[int, int, int, int] | None:
+        """(x0, y0, x1, y1) in frame pixels, or None to use the whole window."""
+        if not p.content_crop or self.count is None or self.pairs < 2:
+            return None
+        active = self.count >= 2
+        rows = np.where(active.mean(axis=1) > p.content_line_share)[0]
+        cols = np.where(active.mean(axis=0) > p.content_line_share)[0]
+        if not len(rows) or not len(cols):
+            return None
+        sh, sw = active.shape
+        y0, y1, x0, x1 = rows[0], rows[-1] + 1, cols[0], cols[-1] + 1
+        share = (y1 - y0) * (x1 - x0) / (sh * sw)
+        if share < p.content_min_area or share > 0.9:
+            return None
+        my, mx = max(1, int(sh * 0.015)), max(1, int(sw * 0.015))      # a little margin
+        y0, x0 = max(0, y0 - my), max(0, x0 - mx)
+        y1, x1 = min(sh, y1 + my), min(sw, x1 + mx)
+        h, w = self.shape
+        return (int(x0 * w / sw), int(y0 * h / sh), int(x1 * w / sw), int(y1 * h / sh))
+
+
+def crop(img, box):
+    if box is None or img is None:
+        return img
+    x0, y0, x1, y1 = box
+    return img[y0:y1, x0:x1]
+
+
 # ------------------------------------------------------------------ grouping
-def group_frames(video: Path, cand_dir: Path, p: Params) -> tuple[list[_Group], float]:
+def group_frames(video: Path, cand_dir: Path, p: Params, progress=_noop,
+                 cancel=lambda: False, activity: "Activity | None" = None
+                 ) -> tuple[list[_Group], float]:
     """Sample the video and group consecutive similar frames (step + drift test).
     The LAST frame of each group is saved as its candidate image (a bullet-by-bullet
     slide is fully revealed by then). Returns (groups, video_duration)."""
@@ -102,8 +171,15 @@ def group_frames(video: Path, cand_dir: Path, p: Params) -> tuple[list[_Group], 
         idx += 1
         if t + 1e-6 < next_t:
             continue
+        if cancel():
+            cap.release()
+            raise Canceled()
+        if nframes:
+            progress(idx / nframes)
         next_t = t + p.interval
         last_t = t
+        if activity is not None:
+            activity.add(frame)
         h = phash_cropped(frame, crop_ratio=p.crop_ratio)
         if cur is None:
             cur = _Group(t, h, h, t, cand_dir / f"cand_{len(groups):04d}.jpg")
@@ -189,7 +265,8 @@ def merge_builds(groups: list[_Group], p: Params) -> list[list[_Group]]:
 
 # ------------------------------------------------------------------ main
 def extract(video: Path, out_dir: Path, p: Params | None = None,
-            log=print) -> dict:
+            log=print, progress=_noop, cancel=lambda: False) -> dict:
+    """progress(fraction 0..1, label) is called often; cancel() is polled and raises Canceled."""
     p = p or Params()
     video, out_dir = Path(video), Path(out_dir)
     img_dir = out_dir / "images"
@@ -199,10 +276,21 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
             shutil.rmtree(d)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    groups, duration = group_frames(video, cand_dir, p)
+    log(f"sampling {video.name} every {p.interval:g}s...")
+    activity = Activity()
+    groups, duration = group_frames(video, cand_dir, p, cancel=cancel, activity=activity,
+                                    progress=lambda f: progress(0.5 * f, "sampling frames"))
+    box = activity.box(p)
+    if box is not None:
+        h, w = activity.shape
+        log(f"content area {box[2] - box[0]}x{box[3] - box[1]} of {w}x{h}: the window's still "
+            f"parts (tabs, toolbars, side panels) are left out of OCR")
     log(f"{len(groups)} candidate groups from {duration:.0f}s of video; running OCR...")
-    for g in groups:
-        g.text = ocr_image(cv2.imread(str(g.image)))
+    for i, g in enumerate(groups):
+        if cancel():
+            raise Canceled()
+        progress(0.5 + 0.5 * i / max(1, len(groups)), f"OCR {i + 1}/{len(groups)}")
+        g.text = ocr_image(crop(cv2.imread(str(g.image)), box))
     strip_static_chrome(groups, p)
 
     merged = merge_builds(groups, p)
@@ -217,7 +305,11 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
         best = max(members, key=lambda g: (len(_norm(g.text)), g.start))  # ties: latest
         n = len(shots) + 1
         name = f"screen_{n:03d}.jpg"
-        shutil.copy(best.image, img_dir / name)
+        if box is None:
+            shutil.copy(best.image, img_dir / name)
+        else:                                   # the screen image is the content area too
+            cv2.imwrite(str(img_dir / name), crop(cv2.imread(str(best.image)), box),
+                        [cv2.IMWRITE_JPEG_QUALITY, 90])
         alnum = len(re.sub(r"\W", "", best.text))
         is_diagram = (alnum < p.diagram_chars
                       and ink_fraction(cv2.imread(str(img_dir / name)), p.crop_ratio) >= p.diagram_ink)
@@ -230,11 +322,6 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
             "text": best.text,
             "merged_from": len(members),
         }
-        if is_diagram and vlm.enabled():          # little OCR text -> ask the local VLM
-            try:
-                shot["description"] = vlm.describe(img_dir / name)
-            except Exception as e:                # keep going: Gemini gets the image instead
-                log(f"screen {n}: local VLM failed ({e}); image will be sent as before")
         shots.append(shot)
     shutil.rmtree(cand_dir, ignore_errors=True)
 
@@ -242,10 +329,12 @@ def extract(video: Path, out_dir: Path, p: Params | None = None,
         "source": str(video),
         "duration": round(duration, 2),
         "params": p.__dict__,
+        "content_box": list(box) if box else None,
         "screenshots": shots,
     }
     (out_dir / "screenshots.json").write_text(
         json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
-    log(f"kept {len(shots)} screenshots, dropped {dropped} (< {p.min_dwell}s) -> "
+    progress(1.0, "done")
+    log(f"kept {len(shots)} screenshots ({sum(s['type'] == 'diagram' for s in shots)} diagrams), dropped {dropped} (< {p.min_dwell}s) -> "
         f"{out_dir / 'screenshots.json'}")
     return doc

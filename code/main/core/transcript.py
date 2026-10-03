@@ -3,7 +3,6 @@ interleaved at each screenshot's start time."""
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 MAX_SCREEN_TEXT = 1500  # chars of OCR text per screenshot
 
@@ -79,49 +78,34 @@ def speech_lines(segments: list[dict], names: dict[str, str] | None = None
     return out
 
 
-@dataclass
-class DiagramRef:
-    number: int          # 1-based, as referenced in the [SCREEN] line
-    shot: dict
-    time: float          # recording-relative start
-
-
-def screen_lines(shots: list[dict], offset: float = 0.0
-                 ) -> tuple[list[tuple[float, str]], list[DiagramRef]]:
+def screen_lines(shots: list[dict], offset: float = 0.0) -> list[tuple[float, str]]:
     """One `[SCREEN]` line per screenshot at its start time (+offset = how many seconds
-    after the audio recording started the screen capture started). Diagram screenshots
-    point at an image that is attached to the Gemini call."""
-    lines, diagrams = [], []
+    after the audio recording started the screen capture started). Diagram screens carry the
+    local VLM's description; a diagram without one is treated as a slide (OCR text only)."""
+    lines = []
     for s in sorted(shots, key=lambda s: s["start"]):
+        if s.get("type") == "picture":       # a video frame / photo: its text is scenery, not content
+            continue
         t = s["start"] + offset
         span = f"on screen {mmss(t)}-{mmss(s['end'] + offset)}"
+        text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
         if s.get("type") == "diagram" and s.get("description"):
-            # Described by the local VLM: plain text, no image attached.
             body = f'Diagram. Description: "{s["description"][:MAX_SCREEN_TEXT]}"'
-            text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
-            if text:
-                body += f' OCR: "{text[:MAX_SCREEN_TEXT]}"'
-        elif s.get("type") == "diagram":
-            d = DiagramRef(len(diagrams) + 1, s, t)
-            diagrams.append(d)
-            body = f"Diagram or image-heavy screen, see image {d.number}."
-            text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
             if text:
                 body += f' OCR: "{text[:MAX_SCREEN_TEXT]}"'
         else:
-            text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
             if not text:
                 continue
             body = f'Slide. OCR: "{text[:MAX_SCREEN_TEXT]}"'
         lines.append((t, f"[{mmss(t)}] [SCREEN] ({span}) {body}"))
-    return lines, diagrams
+    return lines
 
 
 def build_input(segments: list[dict], shots: list[dict], offset: float = 0.0,
-                names: dict[str, str] | None = None) -> tuple[str, list[DiagramRef]]:
+                names: dict[str, str] | None = None) -> str:
     speech = speech_lines(segments, names)
-    screen, diagrams = screen_lines(shots, offset)
+    screen = screen_lines(shots, offset)
     # Stable merge by time; on a tie the speech line goes first.
     merged = sorted([(t, 0, i, ln) for i, (t, ln) in enumerate(speech)]
                     + [(t, 1, i, ln) for i, (t, ln) in enumerate(screen)])
-    return "\n".join(ln for *_, ln in merged), diagrams
+    return "\n".join(ln for *_, ln in merged)

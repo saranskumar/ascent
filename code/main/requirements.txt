@@ -1,0 +1,8 @@
+PyQt6>=6.5
+numpy
+pillow
+opencv-python-headless
+rapidfuzz
+rapidocr-onnxruntime
+windows-capture; sys_platform == "win32"
+pytest
