@@ -195,7 +195,7 @@ class Ollama:
 _SENT = re.compile(r"(?<=[.!?])\s+")
 
 
-def tidy_description(text: str, max_sentences: int = 5) -> str:
+def tidy_description(text: str, max_sentences: int = 14) -> str:
     """Small vision models loop ("The video is in a Settings mode." x15, seen live): keep each
     sentence once, at most a few, and drop a last sentence cut off by the token limit."""
     seen, out = set(), []
