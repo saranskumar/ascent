@@ -54,6 +54,23 @@ python run.py
   - The prompt tells the model to summarise what was *said* and to use the screen only to clarify it.
   - Repeated sentences, a cut-off last sentence and closing "Note:" lines are removed. Small models loop, and `repeat_penalty` in Settings also counters that.
 - **Write-back** works as in the test version. If Meetily has no summary, ours is written. If Meetily already has a different one, the job waits on **Replace with ours / Keep Meetily's / Decide later**, shown on Live, Overview and Meetings. Meetily's version is always saved to the run's `backups/` first.
+- **Summary templates** (Settings > Model > Summary template, files in `core/templates/`). The default is **Detailed**:
+  - Summary
+  - Key Points: each point with its answer or result
+  - Questions & Answers: question, answer, who asked, time
+  - Steps / Demo: numbered
+  - Work Flow: who hands what to whom
+  - Key Decisions: with reason and time
+  - Action Items: owner, task, due date, where it was said
+
+  Meetily's own templates are there too: Standard, Project Sync, Daily Standup, Retrospective, and Client / Sales.
+- **Long meetings:** these work the same way as Meetily's `summary/processor.rs`.
+  1. When the transcript plus screens don't fit the model's context (tokens ≈ characters × 0.35), the text is split into parts with about 100 tokens of overlap. It splits on whole transcript lines.
+  2. Each part is summarised, keeping times, names, questions with answers, steps, and tasks with owners.
+  3. The part summaries are combined, in rounds if they're still too long.
+  4. The template is filled from the combined text.
+
+  Every part's summary appears in the job log. "Split long meetings at (tokens)" forces smaller parts, for example with a small context to save memory.
 - **Model memory:** the model stays loaded while jobs are queued (`keep_alive` 10 min) and is unloaded as soon as the queue is empty.
 - **Restarts:** jobs are kept in `data/jobs/`. A job that was running is queued again and resumes at its unfinished step. Quitting during a capture finalizes the video and queues it.
 

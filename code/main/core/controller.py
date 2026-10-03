@@ -550,17 +550,28 @@ class Controller:
         ctx.progress(0.02, "loading the model and reading the transcript")
         count = [0]
 
+        floor = [0.05]                      # long meetings: the parts take the first 75%
+
         def on_token(piece):
             count[0] += 1
             ctx.token(piece)
             if count[0] % 8 == 0:
-                ctx.progress(0.05 + 0.95 * min(1.0, count[0] / s["max_tokens"]),
-                             f"{count[0]} tokens")
+                ctx.progress(floor[0] + (1 - floor[0]) * min(1.0, count[0] / s["max_tokens"]),
+                             f"report: {count[0]} tokens")
+
+        def on_progress(f, label=""):
+            floor[0] = max(floor[0], f)
+            ctx.progress(f, label)
 
         info: dict = {}
         self._need_model(ctx)
+        from .prompts import get_template
+        template = get_template(s["template"])
+        ctx.log(f"template: {template.get('name')}")
         text = summarize(self._ollama(), s["model"], segs, doc["screenshots"], offset=offset,
-                         speaker_names=names, num_ctx=s["num_ctx"], max_tokens=s["max_tokens"],
+                         speaker_names=names, template=template, chunk_tokens=s["chunk_tokens"],
+                         log=ctx.log, progress=on_progress,
+                         num_ctx=s["num_ctx"], max_tokens=s["max_tokens"],
                          temperature=s["temperature"], repeat_penalty=s["repeat_penalty"],
                          num_gpu=self.settings.num_gpu(),
                          keep_alive=self._keep_alive(), on_token=on_token, cancel=ctx.cancelled,
@@ -573,9 +584,10 @@ class Controller:
         if title and not is_placeholder_title(title):
             self.store.update_meta(run, {"meeting_title": title})
             job["title"] = title
-        ctx.log(f"summary saved ({len(text)} chars, {info.get('eval_count') or '?'} tokens in "
-                f"{info.get('seconds')}s)" + (" - hit the token limit, it may be cut short"
-                                               if info.get("done_reason") == "length" else ""))
+        ctx.log(f"summary saved ({len(text)} chars; report {info.get('eval_count') or '?'} tokens in "
+                f"{info.get('seconds')}s; {info.get('calls', 1)} model call(s), "
+                f"{info.get('chunks', 1)} part(s))" + (" - hit the token limit, it may be cut short"
+                                                        if info.get("done_reason") == "length" else ""))
         return None
 
     def _wait_transcript(self, mid: str, ctx, attempts: int = 4) -> list[dict]:
