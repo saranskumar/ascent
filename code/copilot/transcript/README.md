@@ -2,47 +2,34 @@
 
 Serves live `segment` messages on `ws://127.0.0.1:8771/transcript` (+ `GET /transcript/history`) following the contract in [contracts/README.md](../contracts/README.md).
 
+The text is always **Meetily Pro's own live transcript** (its Parakeet model, mic + system audio). There is no microphone fallback and no second transcription: if Meetily isn't recording, nothing is published.
+
 ---
 
 ## How It Works
 
-`transcript/main.py` provides real-time speech transcription with smart auto-detection:
+**Default: follow Meetily's files.** While recording, Meetily rewrites `transcripts.json` in the meeting's folder (`~/Music/meetily-recordings/Meeting <date>/`) every time it finalises a segment (its log says "wrote transcripts.json with 14 / 15 / 16 segments"). `main.py` watches those files and publishes each new segment:
 
-1. **Meetily Pro Bridge (Option 2 from docs)**:
-   - When Meetily Pro is running with remote debugging enabled (`port 9222`), `main.py` connects to its WebView2 CDP instance and hooks the live `transcript-update` event bus.
-   - It captures Meetily's native NVIDIA Parakeet v3 transcription segments in real time without having to build Meetily from source.
-2. **Standalone Microphone Fallback (Option 1 from docs)**:
-   - If Meetily Pro is **not** running, `main.py` automatically falls back to transcribing the default microphone locally using `faster-whisper` (`base.en` INT8 on CPU).
-3. **Manual Typing Mode**:
-   - For offline testing or scripted demos, pass `--typing`.
-4. **HTTP Say Endpoint**:
-   - `POST /transcript/say` with JSON `{"text": "..."}` to inject speech programmatically.
+- no debug port, no restart of Meetily, no API call or key;
+- `speaker`: `host` = your microphone, `guest` = system audio (the other people);
+- `start` / `end` = Meetily's audio clock (seconds from the recording start);
+- segments are final only. Meetily writes a segment once it is finished, so there are no partials and a few seconds of lag;
+- meetings that existed before the service started are skipped. If you start the service in the middle of a recording, it catches up on that one recording.
+
+The recordings folder is found from `--dir`, `$MEETILY_RECORDINGS_DIR`, the default `~/Music/meetily-recordings`, or the path in Meetily's log.
+
+**Only source.** Nothing else produces transcript text: no microphone, no second model, no debug port. (`POST /transcript/say` still exists because the engine console's typing box posts to it; it is a dev-only injection, not used when you run with Meetily.)
 
 ---
 
 ## How to Run
 
-### Step 1: (Optional) Launch Meetily Pro with Debug Port
-To feed live transcripts from your installed Meetily Pro:
-```powershell
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
-Start-Process "$env:LOCALAPPDATA\Meetily Pro\MeetilyPro.exe"
-```
-*(Or set `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` permanently in Windows User Environment Variables).*
-
-### Step 2: Start the Live Transcript Service
 ```powershell
 python -m transcript.main
 ```
-- If Meetily Pro is active on port 9222:
-  `Meetily Pro detected on port 9222! Using Meetily Pro transcription stream.`
-- If Meetily Pro is not running:
-  `Meetily Pro not detected on port 9222. Using standalone microphone transcription.`
+Expected: `Following Meetily Pro's live transcript in <your Music>\meetily-recordings`, then `[#n] [  8.9s -  12.7s] (mic) Hello, hello.` lines as you record in Meetily Pro.
 
-### Step 3: Verify the Stream
-- **Terminal tap**:
-  ```powershell
-  python -m mocks.tap transcript
-  ```
-- **Web visualizer**: Open `code/copilot/mocks/live_transcript.html` in any browser.
+Verify the stream:
+- **Terminal tap**: `python -m mocks.tap transcript`
+- **Web visualizer**: open `code/copilot/mocks/live_transcript.html`
 - **REST history**: `GET http://127.0.0.1:8771/transcript/history`
