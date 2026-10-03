@@ -57,6 +57,8 @@ class SettingsPage(QWidget):
         m.addRow("Diagram description max tokens", self._num("vlm_max_tokens"))
         m.addRow("Image long side (px)", self._num("vlm_max_side"))
         m.addRow("Diagram prompt", self.vlm_prompt)
+        m.addRow("", self._check("start_ollama", "Start Ollama with this app, and again if it "
+                                 "stops (only when it runs on this computer)"))
         m.addRow("", self._check("keep_loaded", "Keep the model in memory while jobs are queued "
                                  "(unloaded when the queue is empty)"))
         m.addRow("Timeout (s without output)", self._num("request_timeout"))

@@ -134,6 +134,9 @@ class Controller:
     def start(self, webhooks: bool = True) -> None:
         """webhooks=False: no listener and no subscription in Meetily (manual use only)."""
         threading.Thread(target=self._warm_ocr, daemon=True, name="ocr-warmup").start()
+        if self.settings["start_ollama"]:
+            threading.Thread(target=lambda: self._ollama().ensure_running(log=print), daemon=True,
+                             name="ollama-start").start()
         self.queue.start()
         from .webserver import serve_in_thread
         if not webhooks:
@@ -167,6 +170,14 @@ class Controller:
             self.httpd.shutdown()
         if self.settings["keep_loaded"]:
             self._ollama().unload(self.settings["model"])
+
+    def _need_model(self, ctx) -> None:
+        """Before a step that uses the model: make sure Ollama runs (it can stop mid-session,
+        e.g. after running out of memory), starting it if the setting allows."""
+        client = self._ollama()
+        ok = client.ensure_running(log=ctx.log) if self.settings["start_ollama"] else client.up()
+        if not ok:
+            raise RuntimeError(f"can't reach Ollama at {client.base}; start Ollama and press Retry")
 
     def _warm_ocr(self) -> None:
         """OCR must be loaded before the first Windows Graphics Capture session (see ocr.warm_up)."""
@@ -444,6 +455,7 @@ class Controller:
             ctx.log("no diagram screens to describe")
             return "skipped"
         s = self.settings.all()
+        self._need_model(ctx)
         client, d = self._ollama(), self.store.run_dir(run)
         ctx.log(f"describing {len(todo)} diagram screen(s) with {s['model']} "
                 f"({'CPU' if s['device'] == 'cpu' else 'GPU'})")
@@ -516,6 +528,7 @@ class Controller:
                              f"{count[0]} tokens")
 
         info: dict = {}
+        self._need_model(ctx)
         text = summarize(self._ollama(), s["model"], segs, doc["screenshots"], offset=offset,
                          speaker_names=names, num_ctx=s["num_ctx"], max_tokens=s["max_tokens"],
                          temperature=s["temperature"], repeat_penalty=s["repeat_penalty"],

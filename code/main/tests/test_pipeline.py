@@ -265,3 +265,21 @@ def test_cleanup_drops_loops_and_notes():
 def test_picture_answer():
     from core.controller import is_picture
     assert is_picture("PICTURE") and is_picture("Picture.") and not is_picture("A bar chart of costs")
+
+
+def test_ollama_is_started_when_down(monkeypatch):
+    import core.ollama as ol
+    started = []
+    monkeypatch.setattr(ol, "find_executable", lambda: ("C:/x/ollama app.exe", []))
+    monkeypatch.setattr("subprocess.Popen", lambda cmd, **kw: started.append(cmd))
+    state = {"up": False}
+    monkeypatch.setattr(ol.Ollama, "up", lambda self, timeout=2: state["up"] or bool(started))
+    monkeypatch.setattr(ol.time, "sleep", lambda s: None)
+    assert ol.Ollama("http://127.0.0.1:11434").ensure_running(wait=5)
+    assert started == [["C:/x/ollama app.exe"]]
+    # already up: nothing started; a remote Ollama is never started from here
+    started.clear()
+    state["up"] = True
+    assert ol.Ollama("http://127.0.0.1:11434").ensure_running() and started == []
+    monkeypatch.setattr(ol.Ollama, "up", lambda self, timeout=2: False)
+    assert not ol.Ollama("http://10.0.0.5:11434").ensure_running() and started == []

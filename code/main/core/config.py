@@ -28,6 +28,7 @@ DEFAULTS: dict = {
     "vlm_prompt": ("This is a screen shown in a meeting. State the facts it shows in 2-3 plain "
                    "sentences: titles, labels, numbers, and how the parts relate. Do not describe "
                    "colours or layout."),
+    "start_ollama": True,         # start Ollama with the app, and again if it stops
     "keep_loaded": True,          # keep the model in memory while jobs are queued
     "request_timeout": 900,       # seconds without a single token before a call is abandoned
 

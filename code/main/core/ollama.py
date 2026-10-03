@@ -44,9 +44,69 @@ def _explain(e: Exception, base: str, model: str) -> str:
     return f"{type(e).__name__}: {e}"
 
 
+def find_executable() -> tuple[str, list[str]] | None:
+    """How to start Ollama here: the tray app (what its installer sets up), else `ollama serve`."""
+    import os
+    import shutil
+    local = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama"
+    app = local / "ollama app.exe"
+    if app.is_file():
+        return str(app), []
+    cli = local / "ollama.exe"
+    if cli.is_file():
+        return str(cli), ["serve"]
+    found = shutil.which("ollama")
+    return (found, ["serve"]) if found else None
+
+
+def is_local(base: str) -> bool:
+    from urllib.parse import urlparse
+    return (urlparse(base).hostname or "") in ("127.0.0.1", "localhost", "::1")
+
+
 class Ollama:
     def __init__(self, base: str = "http://127.0.0.1:11434"):
         self.base = base.rstrip("/")
+
+    # ---- running
+    def up(self, timeout: float = 2) -> bool:
+        try:
+            with urllib.request.urlopen(self.base + "/api/version", timeout=timeout) as r:
+                r.read()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def ensure_running(self, wait: float = 40, log=lambda *_: None) -> bool:
+        """Start Ollama if it isn't answering (only for an Ollama on this computer). Returns
+        whether it answers now. Safe to call often: it's one quick request when Ollama is up."""
+        if self.up():
+            return True
+        if not is_local(self.base):
+            return False
+        exe = find_executable()
+        if exe is None:
+            log("Ollama isn't running and isn't installed where expected; install it from ollama.com")
+            return False
+        import subprocess
+        path, args = exe
+        log(f"Ollama isn't running; starting it ({Path(path).name})")
+        try:
+            subprocess.Popen([path, *args], close_fds=True,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                             | getattr(subprocess, "DETACHED_PROCESS", 0),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            log(f"couldn't start Ollama: {e}")
+            return False
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            if self.up():
+                log("Ollama is running")
+                return True
+        log(f"started Ollama, but it didn't answer within {wait:.0f}s")
+        return False
 
     # ---- info
     def models(self, timeout: float = 3) -> list[str]:
