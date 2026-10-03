@@ -405,7 +405,7 @@ def test_long_meeting_is_summarized_in_parts_then_combined(setup):
     j = ctl.queue.get(job["id"])
     assert j["status"] == "done", j["log"]
     log = "\n".join(j["log"])
-    assert "summarizing" in log and "parts, then combining them" in log and "part 1/" in log
+    assert "summarizing" in log and "parts along the timeline, then combining them" in log and "part 1/" in log
     systems = [r["messages"][0]["content"] for r in oll.requests]
     assert any(s == "You are an expert meeting summarizer." for s in systems)            # chunk pass
     assert any("synthesizing" in s for s in systems)                                      # combine
@@ -425,3 +425,33 @@ def test_templates_load_and_detailed_is_default():
     sp = build_system_prompt(t=t)
     assert "| **Question** | Answer | Asked by | Time |" in sp and "**Steps / Demo**" in sp
     assert get_template("nope")["name"] == "Detailed Meeting Notes"
+
+
+def test_screen_showing_across_a_part_boundary_is_carried_over():
+    from core.summarizer import carry_screens, chunk_span
+    shots = [{"id": 1, "start": 50, "end": 200, "type": "diagram", "text": "Q3 plan",
+              "description": "A roadmap with three milestones."}]
+    part2 = "[02:00] Speaker 1: as you can see, the second milestone moves.\n[02:30] Speaker 2: ok."
+    out = carry_screens(part2, shots, offset=0)
+    assert out.splitlines()[0].startswith("[00:50] [SCREEN] (still on screen; on screen 00:50-03:20)")
+    assert "A roadmap with three milestones." in out and out.endswith(part2)
+    assert carry_screens(part2, shots, offset=200) == part2          # not showing then: nothing added
+    assert chunk_span(part2) == ("02:00", "02:30")
+
+
+def test_part_summaries_are_saved_with_the_run(setup):
+    make, _ = setup
+    ctl, meet = make()
+    meet.get_transcript = lambda mid: {"segments": [
+        {"text": f"Item {i}: we will ship feature {i} next week.", "audio_start_time": float(i * 5)}
+        for i in range(300)]}
+    ctl.settings.update({"chunk_tokens": 800})
+    run = make_run(ctl)
+    job = ctl.queue.create(run=run, title="t", meeting_id="meeting-1", stages=["summarize"])
+    wait_for(lambda: ctl.queue.get(job["id"])["status"] in ("done", "failed"), timeout=30)
+    assert ctl.queue.get(job["id"])["status"] == "done"
+    saved = json.loads((ctl.store.run_dir(run) / "summary_parts.json").read_text("utf-8"))
+    assert len(saved["parts"]) > 1 and saved["parts"][0]["from"] == "00:00" and saved["combined"]
+    meta = json.loads((ctl.store.run_dir(run) / "summary.meta.json").read_text("utf-8"))
+    assert "parts" not in meta and meta["chunks"] == len(saved["parts"])
+    assert ctl.store.detail(run)["parts"]["parts"]

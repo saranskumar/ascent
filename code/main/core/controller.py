@@ -578,8 +578,15 @@ class Controller:
                          timeout=s["request_timeout"], info=info)
         d = self.store.run_dir(run)
         (d / "summary.md").write_text(text, "utf-8")
+        parts, combined = info.pop("parts", []), info.pop("combined", "")
         write_json(d / "summary.meta.json", {"model": s["model"], "meeting_id": mid, "offset": offset,
                                              "at": now_iso(), **info})
+        if parts:                            # long meeting: keep each part's summary with the run
+            write_json(d / "summary_parts.json", {"parts": parts, "combined": combined,
+                                                  "at": now_iso()})
+            ctx.log(f"saved {len(parts)} part summaries (Meetings > Summary > Parts)")
+        else:
+            (d / "summary_parts.json").unlink(missing_ok=True)
         title = split_title(text)[0]
         if title and not is_placeholder_title(title):
             self.store.update_meta(run, {"meeting_title": title})

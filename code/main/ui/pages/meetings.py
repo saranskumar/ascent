@@ -99,6 +99,10 @@ class MeetingsPage(QWidget):
         self.sum_meta = label("", "small", wrap=True)
         self.b_copy = button("Copy", "ghost", self.copy_summary, tip="Copy the summary as Markdown")
         self.b_backup = button("Show Meetily's backup", "ghost", self.toggle_backup)
+        self.b_parts = button("Show parts", "ghost", self.toggle_parts,
+                              tip="A long meeting was summarized in parts along the timeline, then "
+                                  "combined: see each part's summary")
+        self.showing_parts = False
         self.b_edit = button("Edit", on_click=self.start_edit, tip="Change the summary by hand")
         self.b_send = button("Send to Meetily", "primary", self.send,
                              tip="Write this summary into Meetily (its own is backed up first)")
@@ -124,7 +128,8 @@ class MeetingsPage(QWidget):
         self.sum_stack = QStackedWidget()
         self.sum_stack.addWidget(self.summary)
         self.sum_stack.addWidget(edit_box)
-        self.sum_bar = hbox(self.sum_meta, None, self.b_backup, self.b_copy, self.b_edit, self.b_send)
+        self.sum_bar = hbox(self.sum_meta, None, self.b_parts, self.b_backup, self.b_copy, self.b_edit,
+                            self.b_send)
         self.sum_bar.setStretch(0, 1)
         sum_tab = QWidget()
         sum_tab.setLayout(vbox(self.sum_bar, self.sum_stack, margins=(8, 8, 8, 8)))
@@ -406,6 +411,9 @@ class MeetingsPage(QWidget):
                                      "Replace it with ours? Meetily's is saved to backups/ first.")
         self.showing_backup = False
         self.b_backup.setVisible(bool(d["backups"]))
+        self.showing_parts = False
+        self.b_parts.setVisible(bool(d.get("parts")))
+        self.b_parts.setText("Show parts")
         self.b_backup.setText("Show Meetily's backup")
         self._loaded_tabs = set()
         self._load_tab()
@@ -658,10 +666,11 @@ class MeetingsPage(QWidget):
         return self.editing() and self.editor.toPlainText().strip() != (self._edit_base or "").strip()
 
     def _set_summary_bar(self, editing: bool) -> None:
-        for b in (self.b_edit, self.b_send, self.b_backup, self.b_copy):
+        for b in (self.b_edit, self.b_send, self.b_backup, self.b_copy, self.b_parts):
             b.setVisible(not editing)
         if not editing:
             self.b_backup.setVisible(bool((self.detail_data or {}).get("backups")))
+            self.b_parts.setVisible(bool((self.detail_data or {}).get("parts")))
         self.sum_meta.setText("Editing the summary" if editing else self.sum_meta.text())
 
     def start_edit(self) -> None:
@@ -820,6 +829,24 @@ class MeetingsPage(QWidget):
         else:
             self._tab_summary()
             self.b_backup.setText("Show Meetily's backup")
+
+    def toggle_parts(self) -> None:
+        d = self.detail_data
+        pp = (d or {}).get("parts") or {}
+        if not pp.get("parts"):
+            return
+        self.showing_parts = not self.showing_parts
+        if self.showing_parts:
+            md = [f"## Part {p['part']}  ({p['from']} - {p['to']})\n\n{p['summary']}" for p in pp["parts"]]
+            if pp.get("combined"):
+                md.append(f"## Combined\n\n{pp['combined']}")
+            self.summary.setMarkdown("\n\n".join(md))
+            self.sum_meta.setText(f"{len(pp['parts'])} parts along the timeline (each: speech + what was "
+                                  f"on screen then), combined before the report")
+            self.b_parts.setText("Show the report")
+        else:
+            self._tab_summary()
+            self.b_parts.setText("Show parts")
 
     def open_folder(self) -> None:
         if self.run_id:
