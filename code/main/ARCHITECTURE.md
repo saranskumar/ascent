@@ -83,9 +83,11 @@ A **job** is one meeting (a *run*) going through these stages:
 
 ```text
 capture ─► extract ─► describe ─► summarize ─► publish
-(live,     (video →     (VLM on     (transcript +   (back up Meetily's
- outside    screens +    diagram     screens →       summary, then PUT ours)
- queue)     OCR)         screens)    Ollama)
+(live,     (video →     (VLM on     (timeline of    (back up Meetily's
+ outside    screens +    every       speech +        summary, then PUT ours)
+ queue)     OCR)         screen)     screens →
+                                     Ollama, in
+                                     parts if long)
 ```
 
 - One worker, oldest first. Only one model fits in 4 GB of VRAM, and stages depend on each other. A new meeting can still be *captured* while an older one is processed.
@@ -100,8 +102,8 @@ capture ─► extract ─► describe ─► summarize ─► publish
 | Stage | Method | What it does |
 | --- | --- | --- |
 | extract | `_stage_extract` | Waits for OCR warm-up, then `extractor.extract(video)`. Skips if the video is gone but screens exist. Deletes the video afterwards unless *keep capture video* is on. |
-| describe | `_stage_describe` | For screens marked `diagram` (little text), asks the vision model for a short description. |
-| summarize | `_stage_summarize` | Skips if no meeting is linked or auto-summaries are off. Fetches the transcript (`_wait_transcript` retries while Meetily still returns 409), works out the **screen offset** (video time vs recording time; a manual value wins), builds the prompt and streams from Ollama. Writes `summary.md` and `summary.meta.json`. |
+| describe | `_stage_describe` | Asks the vision model about **every** screen (Settings > Describe screens: all / only text-light / none): kind of screen, all text, objects with counts and marks, chart values. An empty answer or an Ollama error gets one more try (Ollama is restarted if it crashed); an empty answer is never saved. Job option `redescribe` redoes all screens. |
+| summarize | `_stage_summarize` | Skips if no meeting is linked or auto-summaries are off, and ends as done when there is neither speech nor screens. Fetches the transcript (`_wait_transcript` retries while Meetily still returns 409), works out the **screen offset** (video time vs recording time; a manual value wins), logs the screen context, and calls `summarizer.summarize` with the chosen template. Long meetings go in parts (see below). Writes `summary.md`, `summary.meta.json` and, for split meetings, `summary_parts.json`. |
 | publish | `_stage_publish` | Needs a meeting, a summary made for *that* meeting, and a write-scope key. Backs up Meetily's summary, then writes ours; if Meetily already has a different one, the job goes to **waiting** for Replace / Keep / Decide later. |
 
 The same stage code backs the manual actions on the Meetings tab (`regenerate`, `send_summary`, `publish_run`, `resolve_overwrite`), so manual and automatic runs behave identically.
@@ -110,19 +112,20 @@ The same stage code backs the manual actions on the Meetings tab (`regenerate`, 
 
 Adapted from lecture-to-notes (MIT). The recorder writes a 1 fps video of one window. `extract` then:
 
-1. **Activity analysis** (`Activity`): finds the part of the window that actually changes (the slide or video area) and ignores browser tabs, address bar, bookmarks and side panels. `Params.browser` turns on stricter chrome handling when the captured process is a browser.
+1. **Activity analysis** (`Activity`): cuts the capture into **layouts** wherever the window's edges change (going full screen, switching tabs). Per layout, pixels that differ from their median in more than 6% of frames are "active", and their rows/columns give the content box (none when < 12% or > 90% moves). Browser tabs, address bar, bookmarks and side panels stay out. With `Params.browser` (the captured process is a browser), a layout where nothing moved drops OCR text in the tab strip (top 9%) and side tabs (left 16%).
 2. **Grouping** (`group_frames`): samples frames, compares a centre-crop perceptual hash with two thresholds (step and drift), and opens a new group when the screen changes. Every group keeps its start and end time.
 3. **Chrome stripping** (`strip_static_chrome`): drops lines that are the same on nearly every screen (titles, URLs).
-4. **OCR** of each group's cropped region (`ocr.py`). Frames with almost no text are marked `diagram`; pure pictures (a film, people) are marked `picture` and kept out of the prompt.
+4. **OCR** of each group's content area (`ocr.py`; URLs and meeting-app UI words dropped). Screens with almost no text are marked `diagram`. Pictures are content too, so every screen is later described.
 5. **Merge builds** (`merge_builds`): bullet-by-bullet slide builds are merged by text containment, keeping the longest text. There is no layout/SSIM merge, because a wrong merge silently deletes content.
-6. Screens shown for less than `min_dwell` are dropped; the rest are written to `screenshots.json` and `images/`.
+6. Screens shown for less than `min_dwell` are dropped; the rest (each cropped to its content area) are written to `screenshots.json` (with `layouts`) and `images/`.
 
 ## Summarizing (`core/summarizer.py`, `transcript.py`, `prompts.py`, `ollama.py`)
 
-- `transcript.screen_lines` turns screens into `[SCREEN]` lines placed in the transcript by time (plus the offset); speaker ids become names from `data/speakers/`.
-- `prompts.py` holds Meetily's summary template and prompt, adjusted to say *summarise what was said; use the screen only to clarify*.
+- `transcript.screen_lines` turns screens into `[SCREEN]` lines (`Shows:` description, `OCR:` text) placed in the transcript by time (plus the offset); speaker ids become names from `data/speakers/`.
+- `prompts.py` holds Meetily's final-report prompt plus our screen rules (*summarise what was said; use the screen only to clarify; an on-screen question read out takes the answer marked on screen*), Meetily's chunk and combine prompts, and the template loader. Templates are JSON files in `core/templates/`: `detailed.json` (default: key points with answers, Q&A, steps / demo, work flow, decisions, action items) and Meetily's own.
+- **Long meetings** (`summarize`, as Meetily's `processor.rs`): tokens ≈ chars × 0.35. When the merged timeline is larger than the budget (context − answer − system prompt − 300), `chunk_text` splits it on whole lines with ~100 tokens of overlap. `carry_screens` repeats a screen still showing at the top of the next part. Each part is summarised, and the summaries are combined (in rounds if needed). The template is filled from the combined text; the parts and the combined text are returned in `info` and saved by the controller.
 - `Ollama.chat_stream` streams tokens (CPU or GPU via `num_gpu`, context and token limits, `repeat_penalty`). `Ollama.ensure_running` can start `ollama serve`.
-- `clean_output` post-processes the model's text: normalises spacing, drops repeated sentences (small models loop), trims a cut-off last sentence, removes closing "Note:" lines, and clears commitments nobody actually spoke.
+- `clean_output` post-processes the model's text: normalises spacing, drops repeated sentences (small models loop), trims a cut-off last sentence and removes closing "Note:" lines. `clear_unspoken_commitments` empties Decisions / Action Items when nobody said anything like a decision or task. Placeholder titles ("AI-Generated Title") are never used to rename a meeting (`writeback.is_placeholder_title`).
 
 ## Write-back (`core/writeback.py`, `meetily_client.py`)
 
@@ -140,7 +143,8 @@ data/
   events/<id>.json      one file per webhook event (status, outcome log)
   speakers/<meeting>.json   names typed in the Speakers panel
   runs/<run>/           meta.json, capture video (optional), screenshots.json, images/,
-                        summary.md, summary.meta.json, published.json, backups/
+                        summary.md, summary.meta.json, summary_parts.json (long meetings),
+                        published.json, backups/, pending_overwrite.json / kept_meetily.json
   app.log               stderr when running without a console
 ```
 
@@ -155,7 +159,7 @@ data/
 | `common.py` | Shared widgets; `init_invoker` lets worker threads run a callable on the UI thread |
 | `pages/overview.py` | Live status of Meetily, write key, Ollama/model, webhook; connection guide; pending decisions; recent events |
 | `pages/live.py` | The job list with stages, progress, log and streaming summary, plus all job controls |
-| `pages/meetings.py` | Per-run detail: summary, screens + OCR, timeline, speakers, model input, link/offset/generate/write |
+| `pages/meetings.py` | Per-run detail: summary (edit with preview, send to Meetily, Meetily's backup, parts), transcript, screens (list + preview + full-size viewer, describe again), timeline, speakers, model input, link/offset/generate |
 | `pages/new_run.py`, `pages/pick.py`, `picker.py` | Manual capture or video import; the window picker with thumbnails |
 | `pages/vlm.py` | Compare installed vision models on one image |
 | `pages/settings.py` | Edits `Settings`; the controller reads it live on each use |
@@ -167,9 +171,9 @@ Pages read `Controller.status()` and react to `Bridge` signals; they hold no pip
 
 | File | Covers |
 | --- | --- |
-| `test_extractor.py` | Extraction on a synthetic video from `synthetic.py` (two scrolling-slide cases are `xfail`, as in `extraction-test`) |
+| `test_extractor.py` | Extraction on a synthetic video from `synthetic.py`; content area, layout switches, browser edges (one screen-count case is `xfail`) |
 | `test_jobs.py` | Queue behaviour: ordering, persistence, restart recovery |
-| `test_pipeline.py` | Controller end to end with fake Meetily and Ollama |
+| `test_pipeline.py` | Controller end to end with fake Meetily and Ollama: stages, decisions, transcript-only, chunking and combining, templates, guards, settings validation |
 | `test_writeback.py` | Backup, overwrite decision, fingerprint |
 | `test_speakers.py` | Speaker name handling |
 | `test_ui_smoke.py` | Windows build and basic interaction |
