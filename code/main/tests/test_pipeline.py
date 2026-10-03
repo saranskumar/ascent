@@ -354,3 +354,25 @@ def test_describe_again_redoes_every_screen(setup):
     assert all(s["description"] == "A bar chart of Q3 costs by team."
                for s in ctl.store.screenshots(run)["screenshots"])
     assert [s["name"] for s in ctl.queue.get(job["id"])["stages"]] == ["describe"]
+
+
+def test_empty_description_is_retried_not_saved(setup, monkeypatch):
+    make, _ = setup
+    ctl, _ = make()
+    run = make_run(ctl)
+    import core.ollama as ol
+    answers = iter(["", "A cow and C__W.", "", ""])
+    monkeypatch.setattr(ol.Ollama, "describe", lambda self, *a, **k: next(answers))
+    job = ctl.queue.create(run=run, title="t", stages=["describe"])
+    wait_for(lambda: ctl.queue.get(job["id"])["status"] in ("done", "failed"))
+    shots = ctl.store.screenshots(run)["screenshots"]
+    assert shots[0]["description"] == "A cow and C__W."          # second try worked
+    assert not shots[1].get("description")                       # both tries empty: not saved
+    log = "\n".join(ctl.queue.get(job["id"])["log"])
+    assert "trying once more" in log and "not described" in log
+
+
+def test_recording_default_name_counts_as_untitled():
+    from core.writeback import DEFAULT_TITLE
+    assert DEFAULT_TITLE.match("[Recording] 2026-10-03 05:46") and DEFAULT_TITLE.match("New Meeting 4:36 PM")
+    assert not DEFAULT_TITLE.match("Kids IQ quiz review")

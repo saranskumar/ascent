@@ -471,25 +471,39 @@ class Controller:
             ctx.check()
             ctx.progress(i / len(todo), f"screen {i + 1}/{len(todo)}")
             t0 = time.monotonic()
-            try:
-                text = client.describe(
-                    d / shot["image"], s["model"], s["vlm_prompt"],
-                    num_gpu=self.settings.num_gpu(), max_tokens=s["vlm_max_tokens"],
-                    max_side=s["vlm_max_side"], keep_alive=self._keep_alive(),
-                    cancel=ctx.cancelled, timeout=s["request_timeout"])
+            text, error = "", None
+            for attempt in (1, 2):              # Ollama sometimes answers empty or runs out of
+                try:                            # memory for one image (seen live): one more try
+                    text = client.describe(
+                        d / shot["image"], s["model"], s["vlm_prompt"],
+                        num_gpu=self.settings.num_gpu(), max_tokens=s["vlm_max_tokens"],
+                        max_side=s["vlm_max_side"], keep_alive=self._keep_alive(),
+                        cancel=ctx.cancelled, timeout=s["request_timeout"])
+                    error = None
+                except Canceled:
+                    raise
+                except OllamaError as e:
+                    error = str(e)
+                    if "can't reach" in error and self.settings["start_ollama"]:
+                        self._need_model(ctx)               # it crashed: start it again
+                    elif "can't reach" in error or "isn't installed" in error:
+                        raise RuntimeError(error) from None
+                if text.strip():
+                    break
+                if attempt == 1:
+                    ctx.log(f"screen {shot['id']}: {error or 'empty answer'}; trying once more")
+                    self.sleep(3)
+            if text.strip():
                 shot["described_by"] = s["model"]
                 shot["description"] = text
                 if shot.get("type") == "picture":       # dropped by an older version: back in
                     shot["type"] = "diagram"
                 ctx.log(f"screen {shot['id']} at {mmss(shot['start'])} ({time.monotonic() - t0:.0f}s) "
                         f"shows: {text}")
-            except Canceled:
-                raise
-            except OllamaError as e:
+            else:
                 failed += 1
-                ctx.log(f"screen {shot['id']}: {e}; using its OCR text only")
-                if "can't reach" in str(e) or "isn't installed" in str(e):
-                    raise RuntimeError(str(e)) from None
+                ctx.log(f"screen {shot['id']}: not described ({error or 'empty answer'}); its screen "
+                        f"text is used. 'Describe screens again' on the Meetings tab retries it")
             self.store.save_screenshots(run, doc)
         if failed == len(todo):
             ctx.log("no screen could be described; the summary uses the screen text only")

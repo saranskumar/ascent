@@ -3,11 +3,11 @@ send to Meetily), transcript, screens (full-size viewer), timeline, speaker name
 model input. Link it to a Meetily meeting, regenerate, answer Replace/Keep."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDoubleSpinBox,
-                             QFileDialog, QHeaderView, QLineEdit, QListView, QListWidget,
-                             QListWidgetItem, QMessageBox, QPlainTextEdit, QSplitter,
+                             QFileDialog, QHeaderView, QLabel, QLineEdit, QListView, QListWidget,
+                             QListWidgetItem, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter,
                              QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
                              QTextBrowser, QWidget)
 
@@ -140,28 +140,35 @@ class MeetingsPage(QWidget):
                                    button("Reload", "ghost", lambda: self._tab_transcript())),
                               self.transcript, margins=(8, 8, 8, 8)))
 
+        # Screens: a list on the left (one row per screen: thumbnail, time, its question/title),
+        # a large preview on the right. Click / arrow keys select, double-click or Enter opens
+        # the full-size viewer. (The old grid was squeezed to one cut-off row, seen live.)
         self.screens = QListWidget()
-        self.screens.setViewMode(QListView.ViewMode.IconMode)
-        self.screens.setIconSize(QSize(200, 120))
-        self.screens.setGridSize(QSize(220, 168))
-        self.screens.setResizeMode(QListView.ResizeMode.Adjust)
-        self.screens.setMovement(QListView.Movement.Static)
+        self.screens.setViewMode(QListView.ViewMode.ListMode)
+        self.screens.setIconSize(QSize(128, 72))
+        self.screens.setSpacing(2)
         self.screens.setWordWrap(True)
+        self.screens.setUniformItemSizes(False)
+        self.screens.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
+        self.screens.setMinimumWidth(280)
+        self.screens.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.screens.currentItemChanged.connect(self._show_screen)
         self.screens.itemDoubleClicked.connect(lambda _it: self.view_screen())
-        self.screen_img = label("")
-        self.screen_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.screen_img.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.screen_img.mousePressEvent = lambda _e: self.view_screen()
+        self.screens.itemActivated.connect(lambda _it: self.view_screen())       # Enter
+        self.screen_img = ScaledImage()
+        self.screen_img.clicked.connect(self.view_screen)
         self.screen_text = QPlainTextEdit()
         self.screen_text.setReadOnly(True)
-        self.sc_status = label("Double-click a screen to see it full size (← → to step through).", "small")
+        self.screen_text.setMaximumHeight(170)
+        self.sc_status = label("", "small")
         side = QWidget()
-        side.setLayout(vbox(self.screen_img, self.screen_text))
-        sc_split = QSplitter(Qt.Orientation.Vertical)
+        side.setLayout(vbox(self.screen_img, self.screen_text, spacing=6))
+        side.layout().setStretch(0, 1)
+        sc_split = QSplitter()
         sc_split.addWidget(self.screens)
         sc_split.addWidget(side)
-        sc_split.setSizes([300, 300])
+        sc_split.setSizes([330, 620])
+        sc_split.setChildrenCollapsible(False)
         sc_tab = QWidget()
         sc_tab.setLayout(vbox(hbox(self.sc_status, None,
                                    button("View full size", on_click=self.view_screen),
@@ -487,20 +494,22 @@ class MeetingsPage(QWidget):
         offset = float(d["meta"].get("offset") or 0)
         for s in d["screenshots"]:
             pm = QPixmap(str(root / s["image"]))
-            icon = QIcon(pm.scaled(200, 120, Qt.AspectRatioMode.KeepAspectRatio,
+            icon = QIcon(pm.scaled(128, 72, Qt.AspectRatioMode.KeepAspectRatio,
                                    Qt.TransformationMode.SmoothTransformation)) if not pm.isNull() else QIcon()
-            kind = {"diagram": "diagram" + (" ✓" if s.get("description") else ""),
-                    "picture": "picture (not in summary)"}.get(s.get("type"), "slide")
-            it = QListWidgetItem(icon, f"#{s['id']} · {mmss(s['start'] + offset)}–{mmss(s['end'] + offset)}\n{kind}")
+            it = QListWidgetItem(icon, f"#{s['id']}  {mmss(s['start'] + offset)}–{mmss(s['end'] + offset)}"
+                                       f"{'' if s.get('description') else '  · not described'}\n"
+                                       f"{screen_title(s)}")
+            it.setToolTip(s.get("description") or s.get("text") or "")
             it.setData(Qt.ItemDataRole.UserRole, s)
             self.screens.addItem(it)
         if not d["screenshots"]:
             self.screen_text.setPlainText("No screens for this meeting (no window was captured).")
         else:
             self.screen_text.clear()
-        self.sc_status.setText(f"{len(d['screenshots'])} screens · double-click one to see it full "
-                               f"size (← → to step through)" if d["screenshots"] else "")
-        self.screen_img.clear()
+        n_desc = sum(1 for s in d["screenshots"] if s.get("description"))
+        self.sc_status.setText(f"{len(d['screenshots'])} screens, {n_desc} described · click one to "
+                               f"preview, double-click or Enter for full size" if d["screenshots"] else "")
+        self.screen_img.set_image(None)
         if d["screenshots"]:
             self.screens.setCurrentRow(0)
 
@@ -535,10 +544,7 @@ class MeetingsPage(QWidget):
         if item is None:
             return
         s = item.data(Qt.ItemDataRole.UserRole)
-        pm = QPixmap(str(self.store.run_dir(self.run_id) / s["image"]))
-        if not pm.isNull():
-            self.screen_img.setPixmap(pm.scaledToHeight(min(260, pm.height()),
-                                                        Qt.TransformationMode.SmoothTransformation))
+        self.screen_img.set_image(self.store.run_dir(self.run_id) / s["image"])
         parts = []
         if s.get("description"):
             parts.append(f"Description ({s.get('described_by') or 'VLM'}):\n{s['description']}")
@@ -837,6 +843,55 @@ class MeetingsPage(QWidget):
         self.detail.setVisible(False)
         self.placeholder.setVisible(True)
         self.refresh()
+
+
+def screen_title(s: dict) -> str:
+    """A short name for a screen: the question/title the vision model quoted, else its first OCR line."""
+    import re
+    desc = s.get("description") or ""
+    m = re.search(r"(?:title|question)[^\"“]{0,40}[\"“]([^\"”]{3,90})[\"”]", desc, re.I)
+    if m:
+        return m.group(1).strip()
+    for line in (s.get("text") or "").splitlines():
+        if len(line.strip()) >= 4:
+            return line.strip()[:70]
+    return (desc[:70] + "…") if len(desc) > 70 else (desc or "(no text)")
+
+
+class ScaledImage(QLabel):
+    """An image that fills its space (keeps its aspect ratio) and opens the viewer on click."""
+    clicked = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.setMinimumSize(200, 140)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Click to see it full size")
+        self._pix: QPixmap | None = None
+
+    def set_image(self, path) -> None:
+        self._pix = QPixmap(str(path)) if path else None
+        if self._pix is not None and self._pix.isNull():
+            self._pix = None
+            self.setText("Image not found (deleted after write-back?)")
+        elif self._pix is None:
+            self.clear()
+        self._fit()
+
+    def _fit(self) -> None:
+        if self._pix is not None:
+            self.setPixmap(self._pix.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+    def mouseReleaseEvent(self, e):
+        if self._pix is not None:
+            self.clicked.emit()
 
 
 def _esc(s: str) -> str:
