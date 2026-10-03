@@ -148,29 +148,63 @@ class App:
         except ValueError:
             return {}
 
+    def run_state(self, run_id: str) -> dict:
+        """Where a run is in the pipeline: capturing -> extracting -> ready (or failed)."""
+        d = self.run_dir(run_id)
+        jobs = [j for j in list(self.jobs.jobs.values()) if j.get("run") == run_id]
+        ext = [j for j in jobs if j["kind"] == "extract"]
+        if (d / "screenshots.json").exists():
+            state, error = "ready", None
+        elif self.capture_run == run_id and self.recorder is not None:
+            state, error = "capturing", None
+        elif any(j["status"] == "running" for j in ext):
+            state, error = "extracting", None
+        elif ext and ext[-1]["status"] == "failed":
+            state, error = "failed", ext[-1]["error"]
+        else:
+            state, error = "pending", None
+        busy = [j for j in jobs if j["status"] == "running"]
+        return {"state": state, "error": error, "busy": busy[-1]["kind"] if busy else None,
+                "jobs": [{"id": j["id"], "kind": j["kind"], "status": j["status"], "error": j["error"],
+                          "log": j["log"][-12:]} for j in jobs[-6:]]}
+
     def runs(self) -> list[dict]:
         out = []
         for d in self.data.iterdir():
+            if not d.is_dir():
+                continue
             f = d / "screenshots.json"
-            if d.is_dir() and f.exists():
-                try:
-                    doc = json.loads(f.read_text("utf-8"))
-                except ValueError:
+            m = self.meta(d)
+            if not f.exists():                      # still capturing / extracting: show it anyway
+                if not m and self.capture_run != d.name:
                     continue
-                shots = doc.get("screenshots", [])
-                m = self.meta(d)
-                out.append({"id": d.name, "created": m.get("created") or f.stat().st_mtime,
-                            "duration": doc.get("duration"), "screens": len(shots),
-                            "diagrams": sum(1 for s in shots if s.get("type") == "diagram"),
-                            "has_summary": (d / "summary.md").exists(),
-                            "meeting_id": m.get("meeting_id"), "source": m.get("source_name")})
+                out.append({"id": d.name, "created": m.get("created") or d.stat().st_mtime, "duration": None,
+                            "screens": 0, "diagrams": 0, "has_summary": False,
+                            "meeting_id": m.get("meeting_id"), "source": m.get("source_name"),
+                            "state": self.run_state(d.name)["state"]})
+                continue
+            try:
+                doc = json.loads(f.read_text("utf-8"))
+            except ValueError:
+                continue
+            shots = doc.get("screenshots", [])
+            out.append({"id": d.name, "created": m.get("created") or f.stat().st_mtime,
+                        "duration": doc.get("duration"), "screens": len(shots),
+                        "diagrams": sum(1 for s in shots if s.get("type") == "diagram"),
+                        "has_summary": (d / "summary.md").exists(),
+                        "meeting_id": m.get("meeting_id"), "source": m.get("source_name"),
+                        "state": "ready"})
         return sorted(out, key=lambda r: r["created"], reverse=True)
 
     def run_detail(self, run_id: str) -> dict:
         d = self.run_dir(run_id)
         f = d / "screenshots.json"
         if not f.exists():
-            raise FileNotFoundError("run not found")
+            if not d.is_dir():
+                raise FileNotFoundError("run not found")
+            return {"id": run_id, "backups": [], "published": None, "has_images": False,
+                    "meta": self.meta(d), "duration": None, "screenshots": [], "summary": None,
+                    "summary_meta": None, **self.run_state(run_id)}
         doc = json.loads(f.read_text("utf-8"))
         summ = d / "summary.md"
         pub = d / "published.json"
@@ -181,7 +215,35 @@ class App:
                 "screenshots": doc.get("screenshots", []),
                 "summary": summ.read_text("utf-8") if summ.exists() else None,
                 "summary_meta": json.loads((d / "summary.meta.json").read_text("utf-8"))
-                if (d / "summary.meta.json").exists() else None}
+                if (d / "summary.meta.json").exists() else None,
+                **self.run_state(run_id)}
+
+    def timeline(self, run_id: str, meeting_id: str | None, offset: float) -> dict:
+        """Speech segments and screens on one clock (the meeting audio's). Screen times in a run
+        are capture-relative, so `offset` (capture start - recording start) shifts them."""
+        from .transcript import segment_start, speaker_key, speaker_label
+        d = self.run_dir(run_id)
+        doc = json.loads((d / "screenshots.json").read_text("utf-8"))
+        segs = self.transcript(meeting_id).get("segments") or []
+        names = speaker_names.load(self.data, meeting_id)
+        multi = len({speaker_key(x) for x in segs if speaker_key(x) is not None}) > 1
+        speech, last = [], 0.0
+        for seg in segs:
+            text = (seg.get("text") or "").strip()
+            if not text:
+                continue
+            t = segment_start(seg)
+            t = last if t is None else t
+            last = t
+            end = seg.get("audio_end_time")
+            speech.append({"t": round(t, 2), "end": round(float(end), 2) if isinstance(end, (int, float)) else None,
+                           "who": speaker_label(seg, names, multi), "text": text})
+        screens = [{"id": s["id"], "t": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2),
+                    "type": s.get("type"), "image": s["image"], "text": s.get("text") or "",
+                    "description": s.get("description") or ""} for s in doc.get("screenshots", [])]
+        ends = [x["end"] for x in speech if x["end"]] + [x["end"] for x in screens] + [x["t"] for x in speech]
+        return {"run": run_id, "meeting_id": meeting_id or "fixture", "offset": offset,
+                "duration": round(max(ends, default=0.0), 2), "speech": speech, "screens": screens}
 
     def set_meta(self, run_id: str, patch: dict) -> dict:
         d = self.run_dir(run_id)
@@ -195,8 +257,10 @@ class App:
 
     def delete_run(self, run_id: str):
         d = self.run_dir(run_id)
-        if not (d / "screenshots.json").exists():
+        if not d.is_dir():
             raise FileNotFoundError("run not found")
+        if self.capture_run == run_id:
+            raise ValueError("this run is still capturing; stop the capture first")
         shutil.rmtree(d)
 
     # ---- meetily
@@ -206,7 +270,8 @@ class App:
         return MeetilyClient().get_transcript(meeting_id)
 
     def status(self) -> dict:
-        s = {"model": self.settings()["model"],
+        from .summarizer import local_model
+        s = {"model": local_model() or self.settings()["model"], "summary_local": bool(local_model()),
              "gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
              "write_key": bool(os.environ.get("MEETILY_PRO_TOKEN", "").strip()),
              "meetily": {"online": False}}
@@ -439,6 +504,9 @@ class App:
         def work(log):
             log("fetching transcript...")
             segs = self.transcript(meeting_id).get("segments") or []
+            from .summarizer import local_model
+            if local_model():
+                model = local_model()
             log(f"{len(segs)} segments; calling {model}...")
             info: dict = {}
             names = speaker_names.load(self.data, meeting_id)
@@ -604,6 +672,46 @@ class Handler(BaseHTTPRequestHandler):
         status, msg = a.handle_http(self.rfile.read(n), self.headers)
         self.send_json({"result": msg}, status)
 
+    def vlm_test(self, q):
+        """Test page: one uploaded image -> OCR + each chosen local VLM (time and text)."""
+        import cv2
+        import numpy as np
+        from . import vlm
+        from .extractor import Params, ink_fraction
+        from .ocr import ocr_image
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > 15_000_000:
+            raise ValueError("bad image size")
+        img = cv2.imdecode(np.frombuffer(self.rfile.read(n), np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("not an image (use PNG or JPG)")
+        t = time.time()
+        text = ocr_image(img)
+        ocr_s = round(time.time() - t, 2)
+        p = Params()
+        alnum = len(re.sub(r"\W", "", text))
+        ink = ink_fraction(img, p.crop_ratio)
+        out = {"ocr": text, "ocr_seconds": ocr_s, "alnum": alnum, "ink": round(ink, 3),
+               "diagram": alnum < p.diagram_chars and ink >= p.diagram_ink, "results": []}
+        gpu = q.get("gpu", "")
+        tmp = self.app.data / "_vlm_test.jpg"
+        cv2.imwrite(str(tmp), img, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        try:
+            for model in [m for m in q.get("models", "").split(",") if m.strip()][:4]:
+                t = time.time()
+                try:
+                    desc = vlm.describe(tmp, timeout=300, model=model,
+                                        num_gpu=int(gpu) if gpu != "" else None,
+                                        prompt=(q.get("prompt") or "").strip() or None)
+                    err = ""
+                except Exception as e:  # noqa: BLE001
+                    desc, err = "", f"{type(e).__name__}: {e}"
+                out["results"].append({"model": model, "seconds": round(time.time() - t, 1),
+                                       "text": desc, "error": err})
+        finally:
+            tmp.unlink(missing_ok=True)
+        return out
+
     def api(self, method, path, q):
         a = self.app
         parts = path.strip("/").split("/")
@@ -622,6 +730,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_jpeg(thumbnail_jpeg(int(parts[1])))
             if path == "capture":
                 return self.send_json(a.capture_status())
+            if path == "vlm/models":
+                from . import vlm
+                return self.send_json({"models": vlm.list_models(), "default": os.environ.get("VCS_VLM_MODEL", ""),
+                                       "num_gpu": os.environ.get("VCS_VLM_NUM_GPU", ""), "prompt": vlm.PROMPT})
             if path == "pending":
                 a.ui_seen = time.time()
                 return self.send_json({"pending": a.pending_overwrites()})
@@ -646,6 +758,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "input":
                 return self.send_json(a.input_preview(parts[1], q.get("meeting_id"),
                                                       float(q.get("offset") or 0)))
+            if len(parts) == 3 and parts[0] == "runs" and parts[2] == "timeline":
+                return self.send_json(a.timeline(parts[1], q.get("meeting_id"), float(q.get("offset") or 0)))
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "publish-info":
                 return self.send_json(a.publish_info(parts[1], q.get("meeting_id")))
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "backup":
@@ -686,6 +800,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "windows" and parts[2] == "check":
                 from .windows import presenting_warning
                 return self.send_json({"warning": presenting_warning(int(parts[1]))})
+            if path == "vlm/test":
+                return self.send_json(self.vlm_test(q))
             if path == "automation/test":
                 if a.automation is None or not a.automation.sub.state.get("id"):
                     raise ValueError("no webhook registered yet")

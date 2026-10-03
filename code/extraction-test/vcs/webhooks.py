@@ -221,6 +221,47 @@ class Subscription:
 
 
 # ----------------------------------------------------------------------------- act
+class PromptWindow:
+    """Write end of a live popup: progress lines go to the window's stdin as JSON."""
+
+    def __init__(self, proc):
+        self.proc = proc
+        self.lock = threading.Lock()
+
+    def send(self, text: str, state: str = "working", **extra) -> None:
+        with self.lock:
+            try:
+                self.proc.stdin.write(json.dumps({"text": text, "state": state, **extra}) + chr(10))
+                self.proc.stdin.flush()
+            except (OSError, ValueError):       # the user closed the window: keep working silently
+                pass
+
+    def close(self) -> None:
+        with self.lock:
+            try:
+                self.proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+    def wait_action(self) -> str:
+        """Block until the user clicks a button in the window ("" once it is closed)."""
+        try:
+            line = self.proc.stdout.readline()
+            return json.loads(line).get("action", "") if line.strip() else ""
+        except (OSError, ValueError):
+            return ""
+
+    def ask(self, text: str, options: list[tuple[str, str, str]]) -> str:
+        """Show a decision with buttons (label, action, style) in the window; return the action."""
+        self.send(text, "choose", options=[{"label": a, "action": b, "style": c} for a, b, c in options])
+        return self.wait_action()
+
+
+class _Answer(str):
+    """A popup answer that also carries the still-open progress window."""
+    window = None
+
+
 class Automation:
     """Owns the subscription, the HTTP entry point and the worker. `app` is server.App."""
 
@@ -234,6 +275,8 @@ class Automation:
         self.prompter = prompter or self._run_prompt         # prompter(kind, title=, screens=) -> action
         self._threads: list[threading.Thread] = []
         self._asking: set[str] = set()                       # runs with a popup question open
+        self._live: dict[str, PromptWindow] = {}             # runs whose tracker window is open
+        self._tl = threading.local()                         # per-thread hook: popup opened -> window
         self.store = EventStore(app.data / "events")
         self.sub = Subscription(app.data, url, client_factory)
         self.client_factory = client_factory
@@ -488,28 +531,64 @@ class Automation:
                               .get("screenshots") or [])
             except (OSError, ValueError):
                 screens = 0
+        def on_open(w):
+            """The popup is on screen (its question still unanswered): tell it what is happening."""
+            if box is not None:
+                w.send("Recording ended. Stopping the capture and extracting screenshots…")
+                threading.Thread(target=self._pump_extract, args=(w, box, ready), daemon=True,
+                                 name="vcs-progress").start()
+        self._tl.on_open = on_open
         try:
             action = self.prompter("generate", title=self._meeting_title(mid), screens=screens)
         except Exception as e:  # noqa: BLE001 - a broken popup must not lose the summary
             log(f"summary popup failed ({type(e).__name__}: {e}); generating anyway")
             action = "generate"
-        if box is not None:
-            ready.wait(600)
-            if box.get("error"):
-                log(f"nothing to summarise: {box['error']}")
-                return
-            job = self.app.wait_job(box["job"])
-            if job["status"] != "done":
-                log(f"extraction failed: {job['error']}")
-                return
-            log(job["log"][-2] if len(job["log"]) > 1 else "screenshots extracted")
-        if action != "generate":
-            log(f"not generating now; use Generate summary on the run page ({run})")
-            return
+        finally:
+            self._tl.on_open = None
+        win = getattr(action, "window", None)             # live popup: stays open, shows progress
+
+        def tell(msg, state="working"):
+            if win is not None:
+                win.send(str(msg), state)
+
+        def plog(msg):
+            log(msg)
+            tell(msg)
+        if win is not None:
+            self._live[run] = win
         try:
-            log(self.summarize_and_publish(run, mid, log))
-        except Exception as e:  # noqa: BLE001
-            log(f"summary failed: {type(e).__name__}: {e}")
+            if box is not None:
+                if action == "generate":
+                    tell("Waiting for the screenshots to finish extracting…")
+                ready.wait(600)
+                if box.get("error"):
+                    log(f"nothing to summarise: {box['error']}")
+                    tell(f"Nothing to summarise: {box['error']}", "error")
+                    return
+                job = self.app.wait_job(box["job"])
+                if job["status"] != "done":
+                    log(f"extraction failed: {job['error']}")
+                    tell(f"Extraction failed: {job['error']}", "error")
+                    return
+                plog(job["log"][-2] if len(job["log"]) > 1 else "screenshots extracted")
+            if action != "generate":
+                log(f"not generating now; use Generate summary on the run page ({run})")
+                return
+            while True:                                  # "Regenerate" in the window loops here
+                try:
+                    res = self.summarize_and_publish(run, mid, plog, progress=tell)
+                    log(res)
+                    tell(res, "done", summary=self._ours_text(run), url=f"{self.base_url}/#/runs/{run}")
+                except Exception as e:  # noqa: BLE001
+                    log(f"summary failed: {type(e).__name__}: {e}")
+                    tell(f"Summary failed: {e}", "error")
+                if win is None or win.wait_action() != "regenerate":
+                    break
+                plog("regenerating the summary…")
+        finally:
+            self._live.pop(run, None)
+            if win is not None:
+                win.close()
 
     def _popup_overwrite(self, run: str, mid: str, current: str, title: str, log):
         """Meetily already has a summary: ask Replace / Keep in a popup (the web dialog stays as
@@ -520,36 +599,71 @@ class Automation:
             except Exception as e:  # noqa: BLE001
                 log(f"overwrite popup failed ({type(e).__name__}: {e}); left for the web UI")
                 action = "later"
-            pending = self.app.run_dir(run) / "pending_overwrite.json"
-            if not pending.exists():
-                return                              # already answered in the web UI
-            if action == "replace":
-                job = self.app.wait_job(self.app.start_publish(run, mid))
-                if job["status"] == "done":
-                    self._clear_pending(run)
-                    log("replaced Meetily's summary with ours (its version is backed up)")
-                else:
-                    log(f"replace failed: {job['error']}; still waiting in the web UI")
-            elif action == "keep":
-                (self.app.run_dir(run) / "kept_meetily.json").write_text(json.dumps(
-                    {"meeting_id": mid, "fingerprint": fingerprint(current), "at": now_iso()}), "utf-8")
-                self._clear_pending(run)
-                log("kept Meetily's summary")
-            else:
-                log("left for later; the question is also waiting in the web UI")
-                self._open_web(run)
+            log(self._resolve_overwrite(run, mid, current, action))
         finally:
             self._asking.discard(run)
 
+    def _resolve_overwrite(self, run: str, mid: str, current: str, action: str, progress=None) -> str:
+        """Carry out the user's Replace / Keep / later answer. Returns what happened."""
+        pending = self.app.run_dir(run) / "pending_overwrite.json"
+        if not pending.exists():
+            return "already answered in the web UI"
+        if action == "replace":
+            if progress:
+                progress("Writing our summary to Meetily (its own is backed up first)…")
+            job = self.app.wait_job(self.app.start_publish(run, mid))
+            if job["status"] == "done":
+                self._clear_pending(run)
+                return "replaced Meetily's summary with ours (its version is backed up)"
+            return f"replace failed: {job['error']}; still waiting in the web UI"
+        if action == "keep":
+            (self.app.run_dir(run) / "kept_meetily.json").write_text(json.dumps(
+                {"meeting_id": mid, "fingerprint": fingerprint(current), "at": now_iso()}), "utf-8")
+            self._clear_pending(run)
+            return "kept Meetily's summary"
+        self._open_web(run)
+        return "left for later; the question is also waiting in the web UI"
+
     def _run_prompt(self, kind: str, title: str = "", screens: int = 0) -> str:
         cmd = [sys.executable, "-m", "vcs.prompt", kind, "--title", title, "--screens", str(screens)]
-        proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parents[1]), capture_output=True,
-                              text=True)
+        cwd = str(Path(__file__).resolve().parents[1])
+        if kind == "generate":
+            return self._run_live_prompt(cmd + ["--live"], cwd)
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
         lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
         if proc.returncode != 0 or not lines:
             raise RuntimeError((proc.stderr or "").strip().splitlines()[-1] if (proc.stderr or "").strip()
                                else "no answer")
         return json.loads(lines[-1]).get("action", "")
+
+    def _pump_extract(self, win: "PromptWindow", box: dict, ready: threading.Event) -> None:
+        """While the question is open, forward the extraction job's log lines to the window."""
+        ready.wait(600)
+        if box.get("error"):
+            win.send(f"Capture failed: {box['error']}", "working")
+        elif box.get("job"):
+            self._forward_job_log(box["job"], win.send)
+
+    def _run_live_prompt(self, cmd: list[str], cwd: str) -> str:
+        """The "generate?" popup. The answer arrives as soon as the button is clicked; when it is
+        "generate" the window stays open and `.window` feeds it progress lines."""
+        proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, encoding="utf-8")
+        win = PromptWindow(proc)
+        hook = getattr(self._tl, "on_open", None)
+        if hook:
+            hook(win)
+        line = proc.stdout.readline()
+        if not line.strip():
+            proc.wait()
+            raise RuntimeError((proc.stderr.read() or "").strip().splitlines()[-1:] or ["no answer"][0])
+        action = json.loads(line).get("action", "")
+        if action != "generate":
+            proc.wait()
+            return action
+        answer = _Answer(action)
+        answer.window = win
+        return answer
 
     # summary.completed / summary.failed -> keep our summary in place
     def on_summary(self, mid: str | None, kind: str, log) -> str:
@@ -571,19 +685,43 @@ class Automation:
         return self.summarize_and_publish(run, mid, log)
 
     # ---- shared steps
-    def summarize_and_publish(self, run: str, mid: str, log) -> str:
+    def _forward_job_log(self, job, progress):
+        """Send a running job's log lines to the progress window (no-op without one)."""
+        if progress is None:
+            return
+        jid = job["id"] if isinstance(job, dict) else job
+
+        def pump():
+            seen = 0
+            while True:
+                j = getattr(getattr(self.app, "jobs", None), "jobs", {}).get(jid)
+                if not j:
+                    return
+                for line in j["log"][seen:]:
+                    progress(line)
+                seen = len(j["log"])
+                if j["status"] != "running":
+                    return
+                time.sleep(0.4)
+        threading.Thread(target=pump, daemon=True, name="vcs-progress").start()
+
+    def summarize_and_publish(self, run: str, mid: str, log, progress=None) -> str:
         app = self.app
         if not (app.run_dir(run) / "screenshots.json").exists():
             return f"{run} has no screenshots; nothing to add"
         self._wait_transcript(mid, log)
         offset = app.suggest_offset(run, mid).get("offset") or 0.0
         log(f"summarising {mid} with screens from {run} (offset {offset}s)")
-        job = app.wait_job(app.start_summarize(run, mid, offset, None))
+        started = app.start_summarize(run, mid, offset, None)
+        self._forward_job_log(started, progress)
+        job = app.wait_job(started)
         if job["status"] != "done":
             err = job["error"] or ""
             if "offline" in err.lower() or "reach meetily" in err.lower():
                 raise MeetilyOffline(None, err, err)
             raise RuntimeError(f"summary failed: {err}")
+        if progress is not None:
+            progress("Writing the summary to Meetily…")
         return self._publish(run, mid, log)
 
     def _publish(self, run: str, mid: str, log) -> str:
@@ -656,6 +794,15 @@ class Automation:
             "run": run, "meeting_id": mid, "title": title, "reason": "replaced" if replaced else "existing",
             "meetily_chars": len(current), "ours_chars": len(self._ours_text(run)), "at": now_iso(),
         }, indent=2), "utf-8")
+        win = self._live.get(run)
+        if win is not None:                              # the tracker window is open: decide right there
+            action = win.ask(
+                "Meetily already has a summary for this meeting. Replace it with ours (it includes what "
+                "was on screen)? Meetily's version is saved to this run's backups first.",
+                [("Replace with ours", "replace", "primary"), ("Keep Meetily's", "keep", "secondary"),
+                 ("Decide later", "later", "ghost")])
+            return f"{run}: " + self._resolve_overwrite(run, mid, current, action or "later",
+                                                      progress=lambda m: win.send(m))
         if self.app.settings().get("ask_generate"):
             if run not in self._asking:
                 self._asking.add(run)

@@ -184,3 +184,15 @@ details summary { cursor: pointer; }
 .win-meta { padding: 8px 10px 10px; min-width: 0; }
 .win-title { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 img.preview { width: 100%; max-height: 420px; object-fit: contain; background: hsl(var(--muted)); border-radius: var(--radius); }
+
+.tlane { position: relative; height: 22px; border-radius: calc(var(--radius) - 2px); background: hsl(var(--muted)); overflow: hidden; }
+.tseg { position: absolute; top: 0; bottom: 0; min-width: 3px; border: 0; padding: 0; cursor: pointer; background: hsl(var(--primary) / .55); }
+.tseg.slide { background: hsl(var(--primary) / .85); } .tseg.diagram { background: hsl(var(--warn)); }
+.tseg:hover { outline: 1px solid hsl(var(--ring)); }
+.tfeed { max-height: 70vh; overflow: auto; }
+.trow { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 9px 18px; border-bottom: 1px solid hsl(var(--border)); }
+.trow:last-child { border-bottom: 0; } .trow.flash { background: hsl(var(--accent)); }
+.trow.screen { background: hsl(var(--secondary)); }
+.tscreen { display: grid; grid-template-columns: 180px 1fr; gap: 14px; align-items: start; }
+.tscreen img { width: 100%; border-radius: calc(var(--radius) - 2px); border: 1px solid hsl(var(--border)); aspect-ratio: 16/9; object-fit: cover; }
+@media (max-width: 800px) { .tscreen { grid-template-columns: 1fr; } }
