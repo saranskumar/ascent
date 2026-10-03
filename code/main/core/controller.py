@@ -28,17 +28,8 @@ from .summarizer import summarize
 from .webhooks import EventStore, Subscription, meeting_id_of
 from .writeback import IN_PROGRESS, fingerprint, is_placeholder_title, publish, split_title, summary_text
 
-# Appended to the diagram prompt (also when it's edited in Settings): small VLMs happily describe
-# a film frame ("a man in a yellow vest"), which then shows up in the summary as if discussed.
-PICTURE_RULE = (" If the screen is a photo, a video or film frame, or a picture of people or scenery "
-                "rather than information (text, a chart, a diagram, a table), reply with the single "
-                "word PICTURE.")
-
-
-def is_picture(text: str) -> bool:
-    t = (text or "").strip().strip(".*\"'").upper()
-    return t == "PICTURE" or t.startswith("PICTURE") and len(t) < 40
-
+BROWSERS = {"chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe",
+            "arc.exe", "chromium.exe"}
 
 END_EVENTS = {"recording.stopped", "recording.failed", "recording.error", "recording.stop_failed"}
 SUMMARY_EVENTS = {"summary.completed", "summary.failed"}
@@ -440,8 +431,10 @@ class Controller:
                 return "skipped"
             raise FileNotFoundError(f"the video {video.name} is gone; nothing to extract")
         self.ocr_ready.wait(120)
-        extract(video, d, self.settings.extract_params(), log=ctx.log,
-                progress=ctx.progress, cancel=ctx.cancelled)
+        params = self.settings.extract_params()
+        process = ((m.get("window") or {}).get("process") or "").lower()
+        params.browser = process in BROWSERS
+        extract(video, d, params, log=ctx.log, progress=ctx.progress, cancel=ctx.cancelled)
         if not self.settings["keep_capture_video"]:
             video.unlink(missing_ok=True)
             ctx.log("video deleted (screenshots kept; Settings > Automation keeps it)")
@@ -450,35 +443,37 @@ class Controller:
     def _stage_describe(self, job, ctx):
         run = job["run"]
         doc = self.store.screenshots(run)
-        todo = [s for s in doc["screenshots"] if s.get("type") == "diagram" and not s.get("description")]
-        if not todo:
-            ctx.log("no diagram screens to describe")
-            return "skipped"
         s = self.settings.all()
+        mode = s["describe_screens"]
+        if mode == "none":
+            ctx.log("describing screens is off (Settings > Model)")
+            return "skipped"
+        todo = [x for x in doc["screenshots"] if not x.get("description")
+                and (mode == "all" or x.get("type") in ("diagram", "picture"))]
+        if not todo:
+            ctx.log("every screen is already described" if doc["screenshots"] else "no screens")
+            return "skipped"
         self._need_model(ctx)
         client, d = self._ollama(), self.store.run_dir(run)
-        ctx.log(f"describing {len(todo)} diagram screen(s) with {s['model']} "
+        ctx.log(f"describing {len(todo)} screen(s) with {s['model']} "
                 f"({'CPU' if s['device'] == 'cpu' else 'GPU'})")
         failed = 0
         for i, shot in enumerate(todo):
             ctx.check()
-            ctx.progress(i / len(todo), f"diagram {i + 1}/{len(todo)}")
+            ctx.progress(i / len(todo), f"screen {i + 1}/{len(todo)}")
             t0 = time.monotonic()
             try:
                 text = client.describe(
-                    d / shot["image"], s["model"], s["vlm_prompt"] + PICTURE_RULE,
+                    d / shot["image"], s["model"], s["vlm_prompt"],
                     num_gpu=self.settings.num_gpu(), max_tokens=s["vlm_max_tokens"],
                     max_side=s["vlm_max_side"], keep_alive=self._keep_alive(),
                     cancel=ctx.cancelled, timeout=s["request_timeout"])
                 shot["described_by"] = s["model"]
-                if is_picture(text):
-                    # a video frame or photo, not information: keep it out of the summary
-                    shot["type"], shot["description"] = "picture", ""
-                    ctx.log(f"screen {shot['id']} ({time.monotonic() - t0:.0f}s): a picture, not "
-                            f"information; left out of the summary")
-                else:
-                    shot["description"] = text
-                    ctx.log(f"screen {shot['id']} ({time.monotonic() - t0:.0f}s): {text[:140]}")
+                shot["description"] = text
+                if shot.get("type") == "picture":       # dropped by an older version: back in
+                    shot["type"] = "diagram"
+                ctx.log(f"screen {shot['id']} at {mmss(shot['start'])} ({time.monotonic() - t0:.0f}s) "
+                        f"shows: {text}")
             except Canceled:
                 raise
             except OllamaError as e:
@@ -488,7 +483,7 @@ class Controller:
                     raise RuntimeError(str(e)) from None
             self.store.save_screenshots(run, doc)
         if failed == len(todo):
-            ctx.log("no diagram could be described; the summary uses OCR text only")
+            ctx.log("no screen could be described; the summary uses the screen text only")
         return None
 
     def _stage_summarize(self, job, ctx):
@@ -519,6 +514,14 @@ class Controller:
         s = self.settings.all()
         ctx.log(f"{len(segs)} transcript segments, {len(doc['screenshots'])} screens, screen offset "
                 f"{offset:+.1f}s ({basis}){f', {len(names)} speaker name(s)' if names else ''}")
+        from .transcript import screen_lines
+        lines = screen_lines(doc["screenshots"], offset)
+        if lines:
+            ctx.log(f"screen context given to the model ({len(lines)} screens):")
+            for _t, line in lines:
+                ctx.log("    " + line.split("[SCREEN] ", 1)[-1][:400])
+        else:
+            ctx.log("no screen context (nothing was captured or read from the screen)")
         ctx.log(f"writing the summary with {s['model']} (context {s['num_ctx']}, up to "
                 f"{s['max_tokens']} tokens, {'CPU' if s['device'] == 'cpu' else 'GPU'})")
         ctx.progress(0.02, "loading the model and reading the transcript")

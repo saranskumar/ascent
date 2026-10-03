@@ -80,24 +80,22 @@ def speech_lines(segments: list[dict], names: dict[str, str] | None = None
 
 def screen_lines(shots: list[dict], offset: float = 0.0) -> list[tuple[float, str]]:
     """One `[SCREEN]` line per screenshot at its start time (+offset = how many seconds
-    after the audio recording started the screen capture started). Diagram screens carry the
-    local VLM's description; a diagram without one is treated as a slide (OCR text only)."""
+    after the audio recording started the screen capture started). A screen carries what the
+    local vision model saw on it (`Shows:`, pictures included) and the text read from it (`OCR:`)."""
     lines = []
     for s in sorted(shots, key=lambda s: s["start"]):
-        if s.get("type") == "picture":       # a video frame / photo: its text is scenery, not content
-            continue
         t = s["start"] + offset
         span = f"on screen {mmss(t)}-{mmss(s['end'] + offset)}"
         text = re.sub(r"\s*\n\s*", " / ", (s.get("text") or "").strip())
-        if s.get("type") == "diagram" and s.get("description"):
-            body = f'Diagram. Description: "{s["description"][:MAX_SCREEN_TEXT]}"'
-            if text:
-                body += f' OCR: "{text[:MAX_SCREEN_TEXT]}"'
-        else:
-            if not text:
-                continue
-            body = f'Slide. OCR: "{text[:MAX_SCREEN_TEXT]}"'
-        lines.append((t, f"[{mmss(t)}] [SCREEN] ({span}) {body}"))
+        desc = re.sub(r"\s+", " ", (s.get("description") or "").strip())
+        parts = []
+        if desc:
+            parts.append(f'Shows: "{desc[:MAX_SCREEN_TEXT]}"')
+        if text:
+            parts.append(f'OCR: "{text[:MAX_SCREEN_TEXT]}"')
+        if not parts:
+            continue
+        lines.append((t, f"[{mmss(t)}] [SCREEN] ({span}) " + " ".join(parts)))
     return lines
 
 

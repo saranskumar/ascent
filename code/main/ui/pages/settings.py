@@ -54,9 +54,16 @@ class SettingsPage(QWidget):
         m.addRow("Summary max tokens", self._num("max_tokens"))
         m.addRow("Temperature", self._num("temperature", decimals=2))
         m.addRow("Repeat penalty", self._num("repeat_penalty", decimals=2))
-        m.addRow("Diagram description max tokens", self._num("vlm_max_tokens"))
+        self.describe = QComboBox()
+        for v, t in (("all", "Every screen (pictures too)"), ("diagrams", "Only screens with little text"),
+                     ("none", "None (screen text only)")):
+            self.describe.addItem(t, v)
+        self._add("describe_screens", self.describe, lambda: self.describe.currentData(),
+                  lambda v: self.describe.setCurrentIndex(max(0, self.describe.findData(v))))
+        m.addRow("Describe screens", self.describe)
+        m.addRow("Description max tokens", self._num("vlm_max_tokens"))
         m.addRow("Image long side (px)", self._num("vlm_max_side"))
-        m.addRow("Diagram prompt", self.vlm_prompt)
+        m.addRow("Screen prompt", self.vlm_prompt)
         m.addRow("", self._check("start_ollama", "Start Ollama with this app, and again if it "
                                  "stops (only when it runs on this computer)"))
         m.addRow("", self._check("keep_loaded", "Keep the model in memory while jobs are queued "

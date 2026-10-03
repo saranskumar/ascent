@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import socket
 import time
 import urllib.error
@@ -181,13 +182,35 @@ class Ollama:
     def describe(self, image: Path, model: str, prompt: str, *, num_gpu: int | None = 0,
                  max_tokens: int = 250, max_side: int = 1024, keep_alive: str | int = "5m",
                  cancel=lambda: False, timeout: float = 600, on_token=None) -> str:
-        options = {"temperature": 0, "num_predict": int(max_tokens)}
+        options = {"temperature": 0, "num_predict": int(max_tokens),
+                   "repeat_penalty": 1.15, "repeat_last_n": 128}
         if num_gpu is not None:
             options["num_gpu"] = num_gpu
         msgs = [{"role": "user", "content": prompt, "images": [jpeg_b64(Path(image), max_side)]}]
         out = self.chat_stream(model, msgs, options, keep_alive=keep_alive, cancel=cancel,
                                timeout=timeout, on_token=on_token)
-        return " ".join(out["text"].split())
+        return tidy_description(out["text"])
+
+
+_SENT = re.compile(r"(?<=[.!?])\s+")
+
+
+def tidy_description(text: str, max_sentences: int = 5) -> str:
+    """Small vision models loop ("The video is in a Settings mode." x15, seen live): keep each
+    sentence once, at most a few, and drop a last sentence cut off by the token limit."""
+    seen, out = set(), []
+    sents = _SENT.split(" ".join((text or "").split()))
+    for i, s in enumerate(sents):
+        key = re.sub(r"\W+", "", s.lower())
+        if not key or key in seen:
+            continue
+        if i == len(sents) - 1 and s[-1:] not in ".!?\"')" and out:
+            break                                   # unfinished last sentence
+        seen.add(key)
+        out.append(s)
+        if len(out) >= max_sentences:
+            break
+    return " ".join(out)
 
 
 def jpeg_b64(path: Path, max_side: int = 1024) -> str:

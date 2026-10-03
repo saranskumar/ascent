@@ -98,3 +98,44 @@ def test_content_box_leaves_out_still_browser_chrome():
     for _ in range(5):
         still.add(chrome)
     assert still.box(Params()) is None
+
+
+def test_layout_switch_gets_its_own_content_area():
+    """Page with tabs for a while, then the video goes full screen: one box can't fit both."""
+    import cv2
+    import numpy as np
+    from core.extractor import Activity
+    rng = np.random.default_rng(2)
+
+    def blocks(h, w):                       # coarse picture, like real video (survives downscaling)
+        small = rng.integers(0, 255, (max(1, h // 40), max(1, w // 40), 3), dtype=np.uint8)
+        return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+    page = blocks(600, 1000)                                               # tabs, toolbar...
+    act = Activity()
+    for t in range(12):                                                    # small player playing
+        f = page.copy()
+        f[160:480, 240:840] = blocks(320, 600)
+        act.add(f, t)
+    for t in range(12, 30):                                                # full screen video
+        act.add(blocks(600, 1000), t)
+    p = Params()
+    segs = act.segments(p)
+    assert len(segs) >= 2 and segs[0]["start"] == 0 and segs[0]["end"] == 12
+    x0, y0, x1, y1 = act.box_at(5, p)
+    assert 200 <= x0 <= 245 and 130 <= y0 <= 165 and 835 <= x1 <= 880 and 475 <= y1 <= 510
+    assert act.box_at(20, p) is None                                    # full screen: whole frame
+
+
+def test_browser_edges_dropped_only_when_nothing_moved():
+    """A still browser page: the tab strip / side tabs are left out of OCR (not slide text)."""
+    import cv2
+    import numpy as np
+    from core.ocr import ocr_image
+    img = np.full((600, 1000, 3), 255, np.uint8)
+    cv2.putText(img, "ChatGPT", (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)     # side tab
+    cv2.putText(img, "Find the biggest fruit", (300, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 2)
+    full = ocr_image(img)
+    trimmed = ocr_image(img, skip_edges=dict(Params().browser_edges))
+    assert "chatgpt" in full.lower() and "chatgpt" not in trimmed.lower()
+    assert "biggest" in trimmed.lower()

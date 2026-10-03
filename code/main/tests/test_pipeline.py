@@ -144,7 +144,12 @@ def test_describe_summarize_publish(setup):
     # the summary prompt carries the description and the speech, all text (no images)
     summ_req = [r for r in oll.requests if not any(m.get("images") for m in r["messages"])][0]
     user = summ_req["messages"][1]["content"]
-    assert "Diagram. Description: \"A bar chart" in user and "Q3 budget" in user
+    assert "Shows: \"A bar chart" in user and "Q3 budget" in user
+    assert all(s.get("description") for s in shots)           # every screen is described
+    # the log shows what each screen showed and the screen context given to the model
+    log = "\n".join(j["log"])
+    assert "shows: A bar chart of Q3 costs by team." in log
+    assert "screen context given to the model (2 screens):" in log and 'OCR: "Q3 budget' in log
     assert summ_req["options"]["num_gpu"] == 0 and summ_req["options"]["num_ctx"] == 16384
     assert "".join(tokens).startswith("# Budget Review")
     assert meet.puts and meet.puts[0].startswith("**Summary**")      # title line stripped
@@ -247,12 +252,24 @@ def test_transcript_only_summary(setup):
     assert meet.puts                                     # written to Meetily (it had none)
 
 
-def test_pictures_and_browser_text_stay_out_of_the_summary_input():
+def test_pictures_reach_the_summary_input():
+    """A quiz's pictures are the content ("find the biggest fruit"): described, not dropped."""
     from core.transcript import build_input
-    shots = [{"id": 1, "start": 0, "end": 5, "type": "picture", "text": "REPARACION", "description": ""},
+    shots = [{"id": 1, "start": 0, "end": 5, "type": "diagram", "text": "Find the biggest fruit?",
+              "description": "A watermelon, an apple and a grape."},
              {"id": 2, "start": 5, "end": 9, "type": "slide", "text": "Q3 budget"}]
-    text = build_input([{"text": "hello", "audio_start_time": 0}], shots)
-    assert "REPARACION" not in text and "Q3 budget" in text
+    text = build_input([{"text": "find the biggest fruit", "audio_start_time": 0}], shots)
+    assert 'Shows: "A watermelon, an apple and a grape." OCR: "Find the biggest fruit?"' in text
+    assert 'OCR: "Q3 budget"' in text
+
+
+def test_old_vlm_prompt_is_upgraded(tmp_path):
+    import json
+    from core.config import OLD_VLM_PROMPTS, VLM_PROMPT, Settings
+    (tmp_path / "settings.json").write_text(json.dumps({"vlm_prompt": next(iter(OLD_VLM_PROMPTS)),
+                                                        "device": "gpu"}), "utf-8")
+    s = Settings(tmp_path)
+    assert s["vlm_prompt"] == VLM_PROMPT and s["device"] == "gpu"
 
 
 def test_cleanup_drops_loops_and_notes():
@@ -262,9 +279,6 @@ def test_cleanup_drops_loops_and_notes():
     assert t.count("not structured") == 1 and "Note:" not in t
 
 
-def test_picture_answer():
-    from core.controller import is_picture
-    assert is_picture("PICTURE") and is_picture("Picture.") and not is_picture("A bar chart of costs")
 
 
 def test_ollama_is_started_when_down(monkeypatch):
@@ -295,3 +309,18 @@ def test_silent_recording_is_done_not_failed(setup):
     j = ctl.queue.get(job["id"])
     assert j["status"] == "done", j["log"]
     assert [s["status"] for s in j["stages"]] == ["skipped", "skipped"] and meet.puts == []
+
+
+def test_made_up_decisions_are_cleared_when_nobody_committed_to_anything():
+    from core.summarizer import clear_unspoken_commitments, has_commitments
+    report = ("# Quiz\n\n**Summary**\n\nA kids' quiz was played.\n\n**Key Decisions**\n\n"
+              "- Team agreed to improve videos.\n\n**Action Items**\n\n| **Owner** | Task | Due |\n"
+              "| --- | --- | --- |\n| Speaker 70 | Develop a new quiz | 48 hours |\n\n"
+              "**Discussion Highlights**\n\n- Find the biggest fruit.")
+    quiz = [{"text": "Find the biggest fruit."}, {"text": "Okay, I'm gonna get it."}]
+    out = clear_unspoken_commitments(report, quiz)
+    assert "Develop a new quiz" not in out and "improve videos" not in out
+    assert out.count("None noted in this section.") == 2 and "Find the biggest fruit" in out
+    # a real commitment keeps them
+    meeting = quiz + [{"text": "Can you send the deck by Friday?"}]
+    assert has_commitments(meeting) and clear_unspoken_commitments(report, meeting) == report

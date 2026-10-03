@@ -59,18 +59,26 @@ def strip_ui_lines(text: str) -> str:
     return "\n".join(keep)
 
 
-def ocr_image(img_bgr, min_score: float = 0.5) -> str:
+def ocr_image(img_bgr, min_score: float = 0.5, skip_edges: dict | None = None) -> str:
     """Return the text of a BGR ndarray, one line per detected text box,
-    top-to-bottom, with meeting-app chrome lines removed."""
+    top-to-bottom, with meeting-app chrome lines removed.
+    skip_edges={"top": .09, "left": .16, ...}: drop text whose centre lies in those bands of the
+    image (a browser's tab strip, toolbar and vertical tabs, when its content area is unknown)."""
     result, _ = _run(img_bgr)
     if not result:
         return ""
+    h, w = img_bgr.shape[:2]
     boxes = []
     for box, text, score in result:
         if float(score) < min_score or not text.strip():
             continue
         ys = [p[1] for p in box]
         xs = [p[0] for p in box]
+        if skip_edges:
+            cx, cy = sum(xs) / len(xs) / w, sum(ys) / len(ys) / h
+            if (cy < skip_edges.get("top", 0) or cx < skip_edges.get("left", 0)
+                    or cx > 1 - skip_edges.get("right", 0) or cy > 1 - skip_edges.get("bottom", 0)):
+                continue
         boxes.append((min(ys), min(xs), text.strip()))
     # Reading order: bucket by line (y within ~half a text height), then x.
     boxes.sort()
