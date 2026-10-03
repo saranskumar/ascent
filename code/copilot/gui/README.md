@@ -1,6 +1,6 @@
 # Part 3: GUI (Mahreen)
 
-One app with two windows. The tech stack is your choice: web/Electron/Tauri, PySide, or whatever is quickest for you. The only requirement is that it can open a WebSocket and load images from a URL.
+One PySide6 app with two windows. It only needs to open a WebSocket and load images from a URL. Architecture: [../ARCHITECTURE.md](../ARCHITECTURE.md#part-3-gui).
 
 | Window | Who sees it | What it does |
 | --- | --- | --- |

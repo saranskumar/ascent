@@ -1,6 +1,6 @@
 ﻿# Meetily Visual Copilot - Technical Notes
 
-> **Updated Oct 2 (hackathon day).** Plan revised after testing Meetily Pro's API and reading the workflows guide. The registration-era architecture is kept at the bottom for reference.
+> **Updated Oct 3.** Plan revised after testing Meetily Pro's API and reading the workflows guide. The registration-era architecture is kept at the bottom for reference.
 
 ## Docs in this folder
 
@@ -12,11 +12,13 @@
 | [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: current status, why the transcript source is blocked, the four options |
 | [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's exact summary prompts, template and settings (from its source), to make our summary match |
 | [code/copilot/](../../code/copilot/README.md) | Live co-pilot code: the 3-part split (transcript / image engine / GUI), message contract, mocks |
+| [code/copilot/ARCHITECTURE.md](../../code/copilot/ARCHITECTURE.md) | Live co-pilot architecture overview (diagrams, engine paths, decisions) |
+| [code/extraction-test/ARCHITECTURE.md](../../code/extraction-test/ARCHITECTURE.md) | Visual summary architecture overview (pipeline, webhook flow, decisions) |
 
 ## Current plan (short)
 
 1. **Priority: Visual context summary**, built as a Meetily workflow: `recording.started` → capture the chosen window → `recording.stopped` / `summary.completed` → extract distinct screenshots → local OCR (diagram images to Gemini) → interleave `[SCREEN]` lines into the transcript → **our own summary with Gemini using Meetily's template/prompts** → back up Meetily's summary → `PUT` ours into Meetily.
-2. **Live co-pilot: in progress, as three parts** (transcript → image engine → GUI overlay + shared canvas). The image engine works end to end (web image search, ~5-7 s from speech to suggestion); the live transcript source is still open because Meetily returns `409 recording_in_progress` during a recording (options documented).
+2. **Live co-pilot: working end to end, as three parts** (transcript → image engine → GUI overlay + shared canvas). The transcript part bridges into Meetily Pro's live `transcript-update` event over the WebView2 debug port (Meetily's Agent API returns `409 recording_in_progress` mid-recording), with a `faster-whisper` microphone fallback. The image engine finds web images ~5-7 s after speech; the PySide6 GUI shows them in a host-only overlay and puts the chosen one on a shareable canvas.
 3. **Capture, OCR and transcription stay local**; **LLM APIs (Gemini) are allowed** for summarisation (decided Oct 2).
 4. **Workflow requirements:** Subscribe → Verify HMAC → Deduplicate → Fetch → Act; least-privilege keys; no hard-coded secrets; handle Meetily offline; `manifest.yaml`.
 
@@ -43,6 +45,8 @@ Our workflow (local)
 | Picker | Small GUI listing open windows with thumbnails |
 | Code | `code/extraction-test/` (visual summary), `code/copilot/` (live co-pilot) |
 | Co-pilot LLM / search | Gemini flash-lite (local llama.cpp fallback); Serper, DuckDuckGo, Wikimedia Commons for images |
+| Co-pilot transcript | Meetily Pro live transcript over CDP (port 9222); `faster-whisper` `base.en` microphone fallback |
+| Co-pilot GUI | PySide6 overlay (excluded from capture) + canvas window |
 | Hardware | Laptop RTX 2050, 4 GB VRAM, shared with Meetily's own transcription |
 
 ## Experiments

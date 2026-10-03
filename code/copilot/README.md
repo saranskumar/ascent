@@ -2,6 +2,8 @@
 
 While the host is talking, the co-pilot notices when a picture would help, finds a few images, and offers them in a host-only overlay. When the host clicks one, it appears on a **canvas** window that has been shared into the meeting since the start, so the host never has to switch what they're sharing.
 
+For how the parts work inside and why, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```text
  1. transcript ──segments──► 2. image engine ──suggestions──► 3. GUI: overlay (host) ──click──► canvas (shared)
     Hari                        Shreevardhan    ◄──select/dismiss──  Mahreen
@@ -11,9 +13,9 @@ While the host is talking, the co-pilot notices when a picture would help, finds
 | Folder | Owner | What |
 | --- | --- | --- |
 | [`contracts/`](contracts/) | everyone | **The interface.** Message formats, ports, sample data, and the shared stream helper. Read [contracts/README.md](contracts/README.md) first. |
-| [`transcript/`](transcript/) | Hari | Part 1. Runs in typing mode until the real source is plugged in. |
+| [`transcript/`](transcript/) | Hari | Part 1. Meetily Pro live bridge, microphone fallback, or typing mode. See [transcript/README.md](transcript/README.md). |
 | [`engine/`](engine/) | Shreevardhan | Part 2. Working: cue + LLM detection, web image search, ~5–7 s from speech to suggestion. See [engine/README.md](engine/README.md). |
-| [`gui/`](gui/) | Mahreen | Part 3. PySide6 overlay and canvas. |
+| [`gui/`](gui/) | Mahreen | Part 3. PySide6 overlay and canvas. See [gui/README.md](gui/README.md). |
 | [`mocks/`](mocks/) | everyone | Fake parts, so each part can be built without the others. |
 | [`tests/`](tests/) | everyone | `python -m pytest -q tests` (offline). |
 

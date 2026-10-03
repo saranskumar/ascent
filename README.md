@@ -7,21 +7,21 @@ Meetily understands meetings from audio. We add two layers on top of it:
 1. **Visual context summary** (priority): a Meetily workflow that captures what was shown on screen, OCRs it, interleaves it with the transcript, and writes a better summary back into Meetily.
 2. **Live co-pilot**: while the host talks, it notices when a picture would help, finds a few images, and offers them in a host-only overlay. One click puts the image on a canvas window that is already shared in the meeting.
 
-## Status (Oct 2)
+## Status (Oct 3)
 
 | Piece | Status | Code |
 | --- | --- | --- |
 | Visual summary (capture → OCR → Gemini → `PUT` into Meetily) | Working, with tests | [`code/extraction-test/`](code/extraction-test/README.md) |
 | Co-pilot image engine (cue + LLM detection, web image search, ~5-7 s speech → suggestion) | Working | [`code/copilot/engine/`](code/copilot/engine/README.md) |
-| Co-pilot transcript source | Typing mode only; real live source undecided (Meetily returns `409 recording_in_progress` mid-meeting) | [`code/copilot/transcript/`](code/copilot/transcript/README.md) |
-| Co-pilot GUI (overlay + canvas) | Stack still to be chosen | [`code/copilot/gui/`](code/copilot/gui/README.md) |
+| Co-pilot transcript source | Working: bridges into Meetily Pro's live transcript (WebView2 debug port 9222), falls back to the microphone (`faster-whisper`), or typing mode | [`code/copilot/transcript/`](code/copilot/transcript/README.md) |
+| Co-pilot GUI (overlay + canvas) | Working: PySide6 overlay (hidden from screen capture) and shareable canvas | [`code/copilot/gui/`](code/copilot/gui/README.md) |
 
 ## Repo layout
 
 | Path | What |
 | --- | --- |
-| [`code/extraction-test/`](code/extraction-test/README.md) | Visual context summary workflow (`vcs/`, `cli.py`, `manifest.yaml`) |
-| [`code/copilot/`](code/copilot/README.md) | Live co-pilot: contracts, transcript, engine, GUI, mocks, tests |
+| [`code/extraction-test/`](code/extraction-test/README.md) | Visual context summary workflow (`vcs/`, `cli.py`, `manifest.yaml`); [architecture](code/extraction-test/ARCHITECTURE.md) |
+| [`code/copilot/`](code/copilot/README.md) | Live co-pilot: contracts, transcript, engine, GUI, mocks, tests; [architecture](code/copilot/ARCHITECTURE.md) |
 | [`docs/`](docs/README.md) | Idea, tech notes, Meetily API findings, team |
 | [`copilot/`](copilot/) | Early live-transcript experiments and the Meetily `openapi.json` |
 | [`presentation/`](presentation/registration/index.html) | Registration deck and submission PDF |
@@ -37,6 +37,7 @@ pip install -r requirements.txt
 python -m pytest -q tests          # offline
 python -m mocks.mock_transcript --loop   # fake transcript
 python -m engine.main                    # image engine on ws://127.0.0.1:8772
+python -m gui                            # overlay + canvas (needs an engine or mock_engine running)
 ```
 
 ```powershell
@@ -54,7 +55,7 @@ Secrets live in gitignored `.env` files or environment variables, never in code.
 
 ## Docs
 
-Start at [`docs/README.md`](docs/README.md); the current plan is in [`docs/tech/README.md`](docs/tech/README.md).
+Start at [`docs/README.md`](docs/README.md); the current plan is in [`docs/tech/README.md`](docs/tech/README.md). For how the code fits together, see the architecture overviews for the [live co-pilot](code/copilot/ARCHITECTURE.md) and the [visual summary workflow](code/extraction-test/ARCHITECTURE.md).
 
 ## Privacy
 

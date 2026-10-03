@@ -1,12 +1,14 @@
-# Live Co-pilot: Status & Options (Oct 2)
+# Live Co-pilot: Status & Options (Oct 3)
 
-**Status (updated Oct 2, evening): in progress, built as three decoupled parts.** The live transcript source is still undecided (Meetily Pro doesn't expose one, see [meetily-api-findings.md](meetily-api-findings.md)), so the co-pilot is split so that it doesn't block on it: part 1 (transcript) emits segments, part 2 (image engine) is **working**, part 3 (GUI) is being built. Code, contracts and mocks are in [`code/copilot/`](../../code/copilot/README.md); engine details in [its README](../../code/copilot/engine/README.md). The visual summary remains the priority.
+**Status (updated Oct 3): all three parts work, built as decoupled parts.** Meetily Pro doesn't expose a live transcript through its API (see [meetily-api-findings.md](meetily-api-findings.md)), so the co-pilot was split so it didn't block on it. The transcript source is now solved with options 2 and 1 below: part 1 reads Meetily's live `transcript-update` event over the WebView2 debug port and falls back to the microphone. Part 2 (image engine) and part 3 (PySide6 overlay + canvas) are working. Architecture: [`code/copilot/ARCHITECTURE.md`](../../code/copilot/ARCHITECTURE.md); code, contracts and mocks: [`code/copilot/`](../../code/copilot/README.md). The visual summary remains the priority.
 
 ## What exists now
 
 - **Image engine (part 2):** cue phrases (fast path) plus an LLM over the last 30 s (slow path) decide when a picture would help; Serper + DuckDuckGo are raced (Wikimedia Commons if both are empty); downloads are filtered (banners, tiny images, stock watermarks, near-duplicates) and 3 images are published as a `suggestion`. About 5-7 s from speech to suggestion on the sample talks.
 - **Web image search is on by default** for the engine; only the short keyword query is sent, never the transcript. This replaces the earlier "local folder first" idea below for the co-pilot.
-- **Still open:** the real live transcript source (the options below), and the GUI.
+- **Transcript source (part 1):** Meetily Pro bridge (option 2) when Meetily runs with `--remote-debugging-port=9222`, otherwise the microphone with `faster-whisper` (option 1), plus typing mode and `POST /transcript/say`. See the [transcript README](../../code/copilot/transcript/README.md).
+- **GUI (part 3):** PySide6 overlay (always on top, excluded from screen capture, history reel, keyboard controls, panic shutter) and a canvas window to share.
+- **Not pursued:** options 3 and 4 below. The Meetily bridge relies on undocumented app internals and could break on a Meetily update; the microphone fallback covers that.
 
 ## Why it's blocked
 
@@ -30,9 +32,9 @@ Transcription should stay local (privacy-first, like Meetily). Update Oct 2: **L
 - Implemented: web image search (Serper, DuckDuckGo, Wikimedia Commons), sending only the keyword (never audio or transcript).
 - Not built: a local image folder indexed with CLIP on-device, as an offline alternative.
 
-## Suggested next step for the transcript source
+## What was chosen
 
-Timebox one person to 1–2 h trying to build Meetily Community from source. If it builds → option 3. If not → option 4.
+Option 2 (read Meetily's window) as the primary source, with option 1 (own live transcription) as the automatic fallback. Option 3 (patching Meetily Community) wasn't needed; it remains the robust long-term route if the debug-port approach breaks.
 
 ## Judge framing
 

@@ -1,6 +1,6 @@
 # Visual Context Summary (Meetily workflow)
 
-Summary of what was said **and** shown, built on Meetily Pro. See `docs/tech/` for the design.
+Summary of what was said **and** shown, built on Meetily Pro. See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and `docs/tech/` for the design notes.
 
 ## Setup
 ```
