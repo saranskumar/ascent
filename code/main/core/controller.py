@@ -504,6 +504,10 @@ class Controller:
         doc = self.store.screenshots(run) if (self.store.run_dir(run) / "screenshots.json").exists() \
             else {"screenshots": []}
         segs = self._wait_transcript(mid, ctx)
+        if not any((x.get("text") or "").strip() for x in segs) and \
+                not any(sh.get("type") != "picture" for sh in doc["screenshots"]):
+            ctx.log("nothing was said and nothing was on screen; no summary to write")
+            return "skipped"
         m = self.store.meta(run)
         if m.get("offset_manual"):
             offset, basis = float(m.get("offset") or 0), "set by you"

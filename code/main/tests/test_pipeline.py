@@ -283,3 +283,15 @@ def test_ollama_is_started_when_down(monkeypatch):
     assert ol.Ollama("http://127.0.0.1:11434").ensure_running() and started == []
     monkeypatch.setattr(ol.Ollama, "up", lambda self, timeout=2: False)
     assert not ol.Ollama("http://10.0.0.5:11434").ensure_running() and started == []
+
+
+def test_silent_recording_is_done_not_failed(setup):
+    make, _ = setup
+    ctl, meet = make()
+    meet.get_transcript = lambda mid: {"segments": []}
+    ctl.transcript_only("meeting-silent", "recording.stopped", lambda m: None)
+    job = ctl.queue.ordered()[0]
+    wait_for(lambda: ctl.queue.get(job["id"])["status"] in ("done", "failed"))
+    j = ctl.queue.get(job["id"])
+    assert j["status"] == "done", j["log"]
+    assert [s["status"] for s in j["stages"]] == ["skipped", "skipped"] and meet.puts == []
