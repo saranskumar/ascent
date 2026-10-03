@@ -37,7 +37,8 @@ PY = sys.executable
 
 VARIANTS = {
     "transcript": {
-        "typing": lambda o: [PY, "-m", "transcript.main"],
+        "typing": lambda o: [PY, "-m", "transcript.main", "--typing"],
+        "live": lambda o: [PY, "-m", "transcript.main"],       # Meetily Pro bridge, else microphone
         "mock": lambda o: [PY, "-m", "mocks.mock_transcript", "--loop", "--speed", str(o.get("speed") or 1)],
     },
     "engine": {
@@ -223,7 +224,7 @@ async def ws_handler(req):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--transcript", choices=["typing", "mock", "none"], default="typing")
+    ap.add_argument("--transcript", choices=["typing", "live", "mock", "none"], default="typing")
     ap.add_argument("--speed", type=float, default=1.0, help="mock transcript speed")
     ap.add_argument("--engine", choices=["real", "mock", "none"], default="real")
     ap.add_argument("--no-open", action="store_true", help="don't open the browser")
