@@ -20,7 +20,7 @@ Extracted from the open-source Meetily code ([Zackriya-Solutions/meetily](https:
 
 ## 2. Flow
 
-1. **(Only Ollama / built-in model, long transcripts)** Split into chunks (estimate tokens = characters × 0.35; chunk = model context − 300, overlap 100), summarize each, then combine. Cloud providers like Gemini get the **whole transcript in one call**. Gemini's context is large, so **no chunking needed** for us.
+1. **(Only Ollama / built-in model, long transcripts)** Split into chunks (estimate tokens = characters × 0.35; chunk = model context − 300, overlap 100; break at a sentence or word), summarize each, then combine. Cloud providers get the **whole transcript in one call**. We run Ollama locally, so **we use this** (see section 7).
 2. **Final report:** system prompt (below) + user prompt `<transcript_chunks>…</transcript_chunks>`.
 3. **Language step:** if the transcript isn't English, normalise to English; if the user chose another summary language, translate. (We can skip this for the hackathon.)
 4. **Clean-up:** strip `<think>…</think>` blocks; if the whole output is wrapped in a ```` ```markdown ```` fence, unwrap it; reject empty output. A duplicated leading `# Title` is stripped for display, and the title is used as the meeting name suggestion.
@@ -89,7 +89,7 @@ User Provided Context:
 </user_context>
 ```
 
-## 5. Chunk / combine prompts (only needed if we ever chunk)
+## 5. Chunk / combine prompts (used for long meetings, see section 7)
 
 - Chunk, system: `You are an expert meeting summarizer.` User:
   `{ENGLISH} Provide a concise but comprehensive summary of the following transcript chunk. Capture all key points, decisions, action items, and mentioned individuals. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.` then `<transcript_chunk>…</transcript_chunk>`
@@ -116,16 +116,35 @@ User Provided Context:
 
 Other built-in templates in the same folder: `daily_standup`, `project_sync`, `retrospective`, `sales_marketing_client_call`, `psychatric_session`.
 
-## 7. What we add on top (our summarizer)
 
-- **Input:** the same `[MM:SS] text` transcript, with screen context interleaved by time, e.g.
+## 7. What we add on top (our summarizer, `code/main/core/prompts.py`, `summarizer.py`)
+
+- **Model:** a local Ollama model (default `qwen3-vl:2b-instruct`), the same one that describes the screens. No cloud.
+- **Input:** the same `[MM:SS] text` transcript (with speaker names), with screen lines merged in by time:
   ```text
-  [04:10] So the drivetrain uses a differential here...
-  [04:12] [SCREEN] Slide "Drivetrain Layout". OCR: "Motor → Gearbox → Diff" | Diagram: block diagram of a 4WD powertrain
+  [01:09] Speaker 70: Find the biggest fruit.
+  [01:03] [SCREEN] (on screen 01:03-01:14) Shows: "A quiz slide 'Find the biggest fruit?' with a watermelon, a peach, a mango, an avocado and raspberries; a green checkmark is over the watermelon." OCR: "Find the biggest fruit?"
   ```
-- **Extra rules in the system prompt** (wording to be tuned):
-  - `[SCREEN]` lines describe what was on screen at that time, not speech.
-  - Resolve vague references ("as you can see", "this one", "here") into concrete facts from the nearest `[SCREEN]` line.
-  - Only include screen content the speakers engaged with; ignore slides nobody discussed.
-  - The report must be fully understandable as text only: never write "see the slide" or "as shown above".
-- **Model:** Gemini, one call (no chunking). Diagram-heavy screenshots are sent to Gemini as images; everything else as OCR text.
+  `Shows:` is the vision model's description; `OCR:` is the text read from the screen.
+- **Final-report system prompt:** Meetily's, verbatim, apart from two changes:
+  - **Title line:** Meetily shows `# [AI-Generated Title]` as an example. A 2B model copied it, and a meeting got renamed "AI-Generated Title", so we describe the title instead and forbid placeholder words.
+  - **Screen rules** are added:
+    - `[SCREEN]` lines are not speech; use them only to make a spoken line clear.
+    - A question on screen that a speaker reads out takes the answer marked on screen.
+    - Never mention anything that appears only on screen: apps, sites, tabs, people's looks.
+    - Decisions and action items come only from what was said.
+    - Not a work meeting? Say so and invent nothing.
+    - Never refer to slides or screens in the report.
+- **User prompt:** `<transcript_chunks>…</transcript_chunks>` followed by one reminder line of the key rule.
+- **Templates:** Meetily's template JSONs are copied unchanged into `code/main/core/templates/`. Our default is **Detailed**: Summary, Key Points (point with its answer), Questions & Answers, Steps / Demo, Work Flow, Key Decisions (with reason), Action Items.
+- **Chunking (section 2) as Meetily does it, with these changes:**
+  - We split the *merged timeline* only between lines, so each part keeps the speech and the screens of the same time.
+  - A screen still showing when a part starts is repeated at the top of the part.
+  - The budget also subtracts the answer length and the system prompt.
+  - The chunk and combine prompts (section 5) get one more sentence: keep times, names, questions with answers, steps in order, tasks with owners and due dates, decisions with reasons, and hand-offs.
+  - If the chunk summaries don't fit one combine call, they're combined in groups over several rounds.
+- **Clean-up after Meetily's:**
+  - repeated sentences and a cut-off last sentence are removed
+  - trailing "Note:" paragraphs are dropped
+  - if nobody said anything like a decision or a task, Decisions and Action Items become "None noted in this section"
+  - options: temperature 0.3, repeat penalty 1.15

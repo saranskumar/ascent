@@ -1,112 +1,71 @@
-﻿# Meetily Visual Copilot - Technical Notes
+# Meetily Visual Context Summaries: Technical Overview
 
-> **Updated Oct 2 (hackathon day).** Plan revised after testing Meetily Pro's API and reading the workflows guide. The registration-era architecture is kept at the bottom for reference.
+> **Updated Oct 3.** The project is the offline desktop app in [`code/main/`](../../code/main/README.md). This page covers its architecture, stack and the decisions behind them.
 
 ## Docs in this folder
 
 | Doc | What's in it |
 | --- | --- |
-| [meetily-api-findings.md](meetily-api-findings.md) | What Meetily Pro's API can and can't do (tested), events, scopes, write-back, summary engine notes |
-| [summary-pipeline.md](summary-pipeline.md) | Visual context summary: product goals, post-meeting pipeline, open decision (build on Meetily's summary vs our own) |
-| [screen-capture.md](screen-capture.md) | Screenshot capture and selection: MVP based on lecture-to-notes, presenting vs watching, content-area detection plan |
-| [copilot-live-transcript.md](copilot-live-transcript.md) | Live co-pilot: current status, why the transcript source is blocked, the four options |
-| [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's exact summary prompts, template and settings (from its source), to make our summary match |
-| [code/copilot/](../../code/copilot/README.md) | Live co-pilot code: the 3-part split (transcript / image engine / GUI), message contract, mocks |
+| [summary-pipeline.md](summary-pipeline.md) | Stages from recording to summary: timeline input, templates, long meetings, guards, write-back |
+| [screen-capture.md](screen-capture.md) | Window picker, 1 fps capture, distinct screens, content area per layout, screen descriptions |
+| [meetily-api-findings.md](meetily-api-findings.md) | What Meetily Pro's API can and can't do (tested), events, scopes, write-back |
+| [meetily-summary-prompts.md](meetily-summary-prompts.md) | Meetily's prompts, templates and chunking (from its source), and what we add |
 
-## Current plan (short)
-
-1. **Priority: Visual context summary**, built as a Meetily workflow: `recording.started` → capture the chosen window → `recording.stopped` / `summary.completed` → extract distinct screenshots → local OCR (diagram images to Gemini) → interleave `[SCREEN]` lines into the transcript → **our own summary with Gemini using Meetily's template/prompts** → back up Meetily's summary → `PUT` ours into Meetily.
-2. **Live co-pilot: in progress, as three parts** (transcript → image engine → GUI overlay + shared canvas). The image engine works end to end (web image search, ~5-7 s from speech to suggestion); the live transcript source is still open because Meetily returns `409 recording_in_progress` during a recording (options documented).
-3. **Capture, OCR and transcription stay local**; **LLM APIs (Gemini) are allowed** for summarisation (decided Oct 2).
-4. **Workflow requirements:** Subscribe → Verify HMAC → Deduplicate → Fetch → Act; least-privilege keys; no hard-coded secrets; handle Meetily offline; `manifest.yaml`.
+## Architecture
 
 ```text
-Meetily Pro (local Agent API, 127.0.0.1:8420)
-   │ recording.started / recording.stopped / summary.completed (webhooks)
+Meetily Pro 1.11 (local Agent API 127.0.0.1:8420)
+   │ webhooks: recording.started / recording.stopped / summary.completed
    ▼
-Our workflow (local)
-   capture window ─► distinct screenshots ─► OCR / VLM
-   fetch transcript (+ back up Meetily summary) ─► interleave [SCREEN] lines by time
-   ─► Gemini summary (Meetily template) ─► PUT /v1/meetings/{id}/summary
+Meeting Summaries app (code/main, PyQt6 tray app, webhook listener on 127.0.0.1:8766)
+   recording.started ─► window picker (in front, or last-used after 45 s) ─► 1 fps capture of that window
+   recording.stopped ─► job queue (one at a time, persisted, resumable):
+        Extract screens    distinct screens · content area per layout · RapidOCR
+        Describe screens   Ollama vision model: what each screen shows
+        Summarize          [MM:SS] speech + [SCREEN] lines by time ─► template (Detailed by default)
+                           too long for the context: parts along the timeline ─► combine ─► template
+        Write to Meetily   back up Meetily's summary ─► PUT ours (asks before replacing) ─► rename
+   summary.completed ─► guard: Meetily replaced ours? put it back / ask
 ```
 
-## Stack (current)
+- **UI:** Overview (status, connection guide, events), Live (queue, steps, log, streaming summary), Meetings (summary edit and send, transcript, screens viewer, timeline, speakers, model input), New run, VLM test and Settings.
+- **Workflow requirements:** these are met as follows.
+  - Subscribe (one stored webhook), Verify (HMAC-SHA256, ±5 min), Deduplicate (`event_id` stored before the ack), Fetch (thin payloads, 409 retried) and Act (one worker, in order).
+  - Events are parked while Meetily is offline.
+  - Least privilege: reads use Meetily's read-only loopback token, and only writes use the `write` key.
+  - No secrets in code.
+
+## Stack
 
 | Layer | Technology |
 | --- | --- |
-| Meeting core | Meetily Pro 1.11 Agent API (HTTP, webhooks, CLI) |
-| Capture | Windows Graphics Capture (`windows-capture`), 1–2 s sampling, or 1 fps window video |
-| Dedup | pHash (centre crop for MVP), two thresholds, text-containment merge (adapted from lecture-to-notes, MIT) |
-| OCR | Local CPU OCR (RapidOCR / Tesseract; lecture-to-notes uses Surya for high quality) |
-| Vision | Gemini, diagram-heavy screenshots only |
-| LLM | Gemini API (key in env var), Meetily's prompts/template |
-| Picker | Small GUI listing open windows with thumbnails |
-| Code | `code/extraction-test/` (visual summary), `code/copilot/` (live co-pilot) |
-| Co-pilot LLM / search | Gemini flash-lite (local llama.cpp fallback); Serper, DuckDuckGo, Wikimedia Commons for images |
-| Hardware | Laptop RTX 2050, 4 GB VRAM, shared with Meetily's own transcription |
+| Meeting core | Meetily Pro 1.11 Agent API (HTTP, webhooks) |
+| App | Python 3.12, PyQt6 (tray, single instance, start with Windows) |
+| Capture | Windows Graphics Capture (`windows-capture`), one window at 1 fps |
+| Distinct screens | pHash with step + drift thresholds and text-containment merge of bullet builds (adapted from lecture-to-notes, MIT) |
+| Content area | layouts split where the window edges change; per layout, pixels that differ from their median; browser edge bands when nothing moves |
+| OCR | RapidOCR (ONNX, CPU), meeting-app UI words and URLs removed |
+| Model | Ollama, one model for vision and text. Default `qwen3-vl:2b-instruct`, CPU or GPU (4 GB RTX 2050). The app starts Ollama when needed |
+| Summary | Meetily's final-report prompt and templates plus our screen rules and Detailed template; Meetily's chunk → combine → report for long meetings |
+| Tests | pytest, offline (fake Ollama HTTP server, fake Meetily client, offscreen Qt) |
 
-## Experiments
+## Decisions (and why)
 
-[`copilot/`](../../copilot/): `live_transcript.py`, `probe_live.py`, `openapi.json` (live API spec from our Pro install). See [meetily-api-findings.md](meetily-api-findings.md#live-transcript-experiments).
-
-## Registration-era architecture (superseded)
-
-### Architecture (high level)
-
-```text
-                    MEETILY CORE
-         recording · Whisper · context · Agent API
-                          │
-           ┌──────────────┴──────────────┐
-           ▼                             ▼
-   INBOUND (Summarization)      OUTBOUND (Live Copilot)
-   Screen → dHash → OCR         Whisper stream → topic/intent
-        → timeline fusion            → local retrieval
-        → Ollama synthesis           → side panel (2–3)
-           │                             │
-           ▼                             ▼
-   Entity-grounded notes        Preview → 1-click Share
-```
-
-Shared layer: **multimodal context** (speech + screen).
-
-### Stack
-
-| Layer | Technology |
+| Decision | Why |
 | --- | --- |
-| Meeting core | [Meetily](https://meetily.ai/) (Zackriya) - transcript, summaries, Agent API / MCP |
-| Speech | Whisper (via Meetily / local) |
-| Keyframes | Screen capture + difference hashing (dHash) |
-| OCR | Apple Vision / Tesseract (changed frames only) |
-| LLM | Ollama (local grounded synthesis + intent) |
-| Retrieval | Indexed local `/assets` + optional embeddings / vector cache |
-| UI | Meetily-adjacent side panel / desktop companion (Tauri candidates) |
-| Privacy | Local-first; no cloud required for the visual pipeline |
-
-### Agent loop
-
-1. **Observe** - live transcript, meeting context, screen context  
-2. **Reason** - topic, explanatory intent, visual type needed  
-3. **Retrieve / Create** - local assets (or generate if appropriate)  
-4. **Act** - Preview · Copy · Share · Save  
-
-### 30-hour MVP phases
-
-| Phase | Goal |
-| --- | --- |
-| 1 | Meetily → app: transcript / context via Agent API or export hooks |
-| 2 | Context extract: topic, entities, explanatory intent → visual type |
-| 3 | Local retrieval: small curated `/assets` (architecture, algorithms, patterns) |
-| 4 | Copilot UI: suggestion card with Preview + Share |
-| 5 (stretch) | Screen grounding: keyframe + OCR on timeline |
-| 6 (stretch) | Context-aware summary incorporating visual milestones |
+| **Fully offline: Ollama instead of Gemini** | Privacy, and no API keys or quotas. One model for vision and text keeps memory to one model on a 4 GB GPU |
+| **Our own summary (not editing Meetily's)** | Meetily summarises without the screen, so moments like "this one went up 40%" are already lost from its summary. We write from the full transcript with the screens on the same timeline, in Meetily's format |
+| **A desktop app, not a web UI** | Popups had to appear on top during a meeting, and processing needs a visible queue (back-to-back meetings) |
+| **Every screen is described (pictures too)** | For a quiz, a product photo or a diagram, the picture is the content. Text-only OCR missed the answers marked on screen |
+| **Content area per layout** | Browser tabs ("ChatGPT", "Inbox") were read as meeting content. One box can't fit both "page with tabs" and "full screen" |
+| **Meetily's chunking for long meetings** | A local model's context is small. Meetily's tested method (0.35 tokens/char, context − 300, 100 overlap), split along our timeline so screens stay with their speech |
+| **Guards for small models** | 2B models loop, invent decisions and copy placeholders, so these are removed after generation |
+| **Write on `recording.stopped`** | Meetily only sends `summary.completed` when it generates its own summary, and hands-off recordings don't get one |
+| **Ask before replacing Meetily's summary** | `PUT` has no undo. Meetily's version is backed up first in any case |
 
 ## References
 
-- Meetily: https://meetily.ai/
-- Developer docs: https://docs.meetily.ai/developers
-- API reference: https://docs.meetily.ai/developers/api-reference
-- Events: https://docs.meetily.ai/developers/events
+- Meetily: https://meetily.ai/ · developer docs https://docs.meetily.ai/developers · source https://github.com/Zackriya-Solutions/meetily
 - Workflows catalog: https://github.com/Zackriya-Solutions/meetily-workflows
-- Repo: https://github.com/Zackriya-Solutions/meetily
 - lecture-to-notes (MIT): https://github.com/drpwchen/lecture-to-notes
+- Ollama: https://ollama.com

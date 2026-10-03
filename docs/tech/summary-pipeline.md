@@ -1,63 +1,90 @@
-# Visual Context Summary: Pipeline (Oct 2)
+# Summary Pipeline (Oct 3)
 
-> **Decided (Oct 2, later):**
-> - **We write our own summary** with **Gemini** (LLM APIs are fine for summarisation; transcription and screen capture stay local). One call over the full transcript with `[SCREEN]` lines interleaved; no chunking needed.
-> - **Cloud scope:** text (transcript + OCR) plus **diagram-heavy screenshot images only**. Other screenshots go as OCR text.
-> - **Format:** Meetily's own template and prompts, so the result looks native. See [meetily-summary-prompts.md](meetily-summary-prompts.md).
-> - **Meetily's own summary:** ignored, but **backed up to disk** before we `PUT` ours.
-> - **Trigger (decided Oct 2, after the live test):** write our summary on `recording.stopped` (after extraction and once the transcript has text). `summary.completed` only fires when Meetily generates its own summary, which hands-off recordings don't get; we use it as a guard to put ours back if Meetily replaces it.
-> - The "build on Meetily's summary" option and the local-model notes below are kept for reference.
+From a Meetily recording to a summary in Meetily, as built in [`code/main`](../../code/main/README.md). Capture and screen extraction are in [screen-capture.md](screen-capture.md).
 
 ## What we want (product view)
 
-- **Reader:** someone who **missed the meeting**.
-- **Goal:** they read the summary and never wonder "what was on screen?". **Text-only is fine.** The summary must pass the *clipboard test* (understandable pasted into Slack/email with no images).
-- **Shape:** visual context **woven into** the summary, not a separate slide dump.
-- **Vague references** ("as you can see here", "this one went up") get **resolved** into facts.
-- **Slide content the speaker never discussed** is left out.
-- **User effort:** pick the window to watch **once**, then hands-off.
+- **Reader:** someone who **missed the meeting**. They read the summary and never wonder "what was on screen?".
+- **Text only:** the summary must pass the *clipboard test*, meaning it's understandable when pasted into Slack or email with no images.
+- **Vague references resolved:** "as you can see", "this one" and "that number" become facts.
+- **Points with answers:** questions with their answers, the steps of a demo, who does what, how the work flows.
+- **Nothing invented:** nothing from the screen that nobody talked about, and no decisions or tasks that nobody said.
+- **Hands-off:** pick the window once per meeting, everything else is automatic.
 
-## Key insight (why we don't just edit Meetily's summary)
+## Stages (one job per meeting, on the Live tab)
 
-Meetily summarises **without seeing the screen**, so moments like "and this jumped 40% after the redesign" look meaningless and get **dropped**. An edit pass that only sees Meetily's summary can't bring them back.
-→ For each screenshot, the edit pass also gets the **transcript around it**, so it can recover dropped points.
+| Stage | What happens | Code |
+| --- | --- | --- |
+| Capture | `recording.started`: the window picker comes to the front; 1 fps recording of the chosen window | `controller.start_capture`, `capture.py` |
+| Extract screens | distinct screens, content area only, OCR. The video is deleted afterwards | `extractor.py` |
+| Describe screens | every screen goes to the vision model: kind of screen, all text exactly, objects with counts and marks, chart values | `controller._stage_describe`, `ollama.describe` |
+| Summarize | timeline input → template report (in parts for long meetings) → clean-up and guards | `summarizer.py`, `prompts.py` |
+| Write to Meetily | back up Meetily's summary → `PUT` → read back → rename a default-named meeting | `writeback.py`, `controller._stage_publish` |
 
-## Pipeline (starts after the meeting ends)
+Jobs run one at a time (one model in memory). They're saved in `data/jobs/` and resume at the unfinished stage after a restart. Each stage can be retried. A recording without a capture gets a transcript-only job (Summarize + Write). One with neither speech nor screens ends as done.
 
-Screenshot capture and selection are covered in [screen-capture.md](screen-capture.md) and appear here as one input.
+## Input: one timeline
 
-```mermaid
-flowchart TD
-    S[/Selected screenshots, each with on-screen start and end times/] --> D
-    M([summary.completed]) --> F[Fetch transcript + Meetily summary]
+Meetily's transcript segments become `[MM:SS] Speaker: text` lines, using the speaker names set on the Speakers tab. Each screen becomes a `[SCREEN]` line at the time it appeared, shifted by the **screen offset**. The offset is the time from Meetily's recording start (the `recording.started` event) to the capture start. The two are merged by time:
 
-    D[OCR each screenshot · local vision model only for diagram-heavy ones] --> W
-    F --> W[Pair each screenshot with transcript from ~5 s before it appears until it leaves the screen, max 90 s]
-    W --> E[Edit pass with a local LLM:<br/>resolve vague references, add back points that need the visual, cite timestamps]
-    F --> E
-    E --> P[PUT summary back into Meetily]
+```text
+[00:39] Speaker 69: Name the picture. What is the first letter?
+[00:42] [SCREEN] (on screen 00:42-00:52) Shows: "A slide 'Name the picture, What is the first letter?' with a bunch of bananas; the word BANANA with the B in red." OCR: "Name the picture / What is the first letter? / B / ANANA"
+[00:53] Speaker 69: Find the animal, find the missing letter.
 ```
 
-- **Transcript window:** from ~5 s *before* the screenshot appears (people introduce a slide just before switching) until it leaves the screen; long slides capped at ~90 s.
-- **Edit pass instruction:** "Here's the summary. Here's what was shown and said at each moment. Fix vague references and **add back any point that only makes sense with the visual**, citing its timestamp."
-- **Write-back:** `PUT /v1/meetings/{id}/summary` (`write` scope). Keep a copy of Meetily's original first (no undo); also useful for a before/after demo.
+The exact input for any meeting is on Meetings > Model input. The Live log shows each screen's description and "screen context given to the model".
 
-## The big open decision: build on Meetily's summary, or write our own?
+## Prompt
 
-| | **A. Build on Meetily's summary** (current default) | **B. Our own summarizer** |
-| --- | --- | --- |
-| Input to final LLM call | Meetily summary + (screenshot OCR + transcript window) per screenshot | Full transcript with `[SCREEN]` lines interleaved by timestamp |
-| Cost | Small: summary + short windows | Re-reads the whole transcript (the expensive part), and Meetily's summary runs anyway unless disabled |
-| Quality risk | A small local model may do the "what was dropped?" judgement badly | A small local model's from-scratch summary may look worse than Meetily's |
-| Control | Less | Full |
-| Judge story | "Meetily summarises what was **said**; we add what was **shown**" (extends their product) | "We replaced their summarizer" (allowed, but competes with it) |
+- **System prompt:** Meetily's final-report prompt, verbatim apart from the title line. Its rules include "Only use information present in the source text" and "If a section has no relevant info, write *None noted in this section*". Our **screen rules** (in `prompts.py`) are added on top:
+  - Spoken lines are the meeting. `[SCREEN]` lines are data, used only to make a spoken line clear.
+  - When a speaker reads out or answers a question shown on screen, the answer marked on screen (tick, circle) is its answer.
+  - Never mention anything that appears only on screen: apps, sites, tabs, people's looks.
+  - Decisions and action items come only from what a speaker said.
+  - Not a work meeting (for example a video playing)? Say so in one sentence and invent nothing.
+- **Template** (`core/templates/*.json`, picked in Settings). The default is **Detailed**:
 
-**Plan:** both share ~90% of the pipeline (capture, dedup, OCR, alignment). Build that first, then **A/B the final step on the same recorded meeting** and decide on evidence. Default to A unless B is clearly better with the same model.
+  | Section | Content |
+  | --- | --- |
+  | Summary | what the meeting was about and what came out of it |
+  | Key Points | in order; each point followed by its answer or result |
+  | Questions & Answers | `Question | Answer | Asked by | Time` |
+  | Steps / Demo | numbered steps of anything demonstrated or explained |
+  | Work Flow | what comes first, what depends on what, who hands what to whom |
+  | Key Decisions | `Decision | Reason | Time` |
+  | Action Items | `Owner | Task | Due | Reference Transcript Segment | Segment Time stamp` |
 
-## Open questions
+  Meetily's own templates (Standard, Project Sync, Daily Standup, Retrospective, Client / Sales) are available too.
+- **User prompt:** `<transcript_chunks>…</transcript_chunks>`, then a one-line reminder of the key rule. Small models follow best what they read last.
 
-- ~~Which model runs the final step?~~ **Gemini** (decided). Exact model (Flash vs Pro) still to pick.
-- **Edit-pass budget:** cap the number of added points ("only add one if a reader would be confused without it"), or be thorough?
-- **Screenshots after the summary is written:** delete (text only survives) or keep so readers can open the original?
-- **Privacy:** beyond "watched window only", what else? (Not settled.)
-- **Does Meetily Pro bundle a model (e.g. Claude) for summaries?** Unverified; check before using it as an argument.
+## Long meetings: parts along the timeline (Meetily's method)
+
+Local models have small contexts, so we use the method from Meetily's `summary/processor.rs`:
+
+1. **Budget:** tokens ≈ characters × 0.35. A part may use the model context (default 16,384) minus the answer (`max_tokens`), the system prompt, and Meetily's 300-token margin. That's about 12,900 tokens, roughly 45–60 minutes of talk with screens. "Split long meetings at (tokens)" in Settings can force smaller parts.
+2. **Split** the merged timeline into parts with about 100 tokens of overlap. Cuts fall only between lines, so each part holds the speech *and* the screens of the same stretch of time. A screen still showing when a part starts is repeated at the top of that part ("still on screen"), so "as you can see…" keeps its context.
+3. **Summarize each part.** This uses Meetily's chunk prompt ("capture all key points, decisions, action items, and mentioned individuals"). We add: keep times, names, every question with its answer, steps in order, tasks with owners and due dates, decisions with reasons, hand-offs.
+4. **Combine** the part summaries with Meetily's combine prompt (joined with `---`). If they still don't fit, combine in groups first, over several rounds.
+5. **Fill the template** from the combined text, the same way as in one pass.
+
+Each part's summary (with its time range) and the combined summary are in the log and in `summary_parts.json` (Meetings > Summary > **Show parts**). On a 6½-minute meeting forced into 8 parts this took 13 model calls. One pass gives the better report, which is why splitting only happens when needed.
+
+## Clean-up and guards (small models)
+
+| Problem seen live | Guard |
+| --- | --- |
+| The same sentence looped until the token limit | repeat penalty (Settings), repeated sentences dropped, cut-off last sentence trimmed |
+| A closing "Note: this summary is based only on…" | trailing "Note" paragraphs removed |
+| Decisions and tasks invented from the screen (e.g. from a kids' quiz video) | if nobody said anything like a decision or a task ("we'll", "let's", "can you", "by Friday"…), those sections become *None noted* |
+| A meeting renamed "AI-Generated Title" | the prompt no longer shows that placeholder; placeholder titles are never used to rename |
+| `<think>` blocks, ```` ```markdown ```` fences | removed (as Meetily does) |
+
+## Write-back
+
+- **Meetily has no summary:** ours is written. Meetily stores the summary without the `# Title` line, and the title renames a meeting that still has Meetily's default name ("New Meeting …", "[Recording] …").
+- **Meetily has a different one:** the job waits on **Replace with ours / Keep Meetily's / Decide later** (Live, Overview, Meetings). Choosing "Keep" is remembered by a content fingerprint, so you aren't asked again.
+- **Backup:** Meetily's summary is always backed up to the run's `backups/` before a `PUT`, since `PUT` has no undo.
+- **Already ours:** an identical summary (compared by fingerprint, because Meetily reformats Markdown) isn't written again.
+- **`summary.completed`:** if Meetily later replaces ours, the same rules apply.
+- **Editing by hand:** Meetings > Summary > **Edit**, then **Save and send to Meetily**. That sends straight away, not through the queue, and asks before replacing.

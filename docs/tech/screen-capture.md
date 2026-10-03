@@ -1,69 +1,65 @@
-# Screen Capture & Screenshot Selection (Oct 2)
+# Screen Capture & Screen Extraction (Oct 3)
 
-## Decision for the MVP
-
-**Use the approach from [lecture-to-notes](https://github.com/drpwchen/lecture-to-notes) (MIT) as-is; tune cropping and the rest later.** Credit it in our README and keep its copyright notice in any code we adapt.
-
-Our own design (below, from GD 4 and later discussion) is the target. It's better for meetings, but theirs has been tuned on real recordings and is good enough to get the pipeline working end to end.
-
-## What we take from lecture-to-notes
-
-| Piece | Their file | What it does | Our change |
-| --- | --- | --- | --- |
-| Interval sampling | `scripts/extract_slides.py` | one frame every N s (default 15 s) | **1–2 s** for meetings |
-| Center-crop pHash | `extract_slides.py` (`phash_cropped`, `crop_ratio=0.65`) | hashes only the centre 65% to ignore borders: a crude content area | later replaced by real content-area detection |
-| Two dedup thresholds | `extract_slides.py` (`dedup_frames`) | each frame vs previous (`threshold=40`) **and** vs the group's first frame (drift = 2×), so slow scrolling doesn't merge into one "slide" | keep |
-| Quick OCR triage | `scripts/quick_ocr.py` | cheap OCR on candidates | keep |
-| Merging bullet-by-bullet slides | `scripts/dedup_semantic.py` | merge neighbours if text is contained (`rapidfuzz partial_ratio ≥ 88`) **or** layout similar (`0.6·SSIM + 0.4·(1−Bhattacharyya) > 0.85`) and < 60 s apart; keep the one with the **longest text** (fully revealed) | keep |
-| UI-word stripping | `dedup_semantic.py` (`_load_ui_tokens`) | removes meeting-app UI words from OCR text before comparing | add Google Meet / Zoom words |
-| Slide → transcript grounding | `ground_slides.py` | each slide + "transcript segments spoken while it was on screen" | basis for our transcript window (see [summary-pipeline.md](summary-pipeline.md)) |
-| VLM for signals only | `vlm_signals.py` (`minicpm-v:8b` via Ollama) | the vision model classifies slides; text comes from OCR | same role for our diagram descriptions |
-
-What it does **not** do: live capture, real content-area detection inside a meeting window, camera tiles. It works on a finished video file.
+As built in [`code/main`](../../code/main/README.md): `capture.py`, `windows.py`, `extractor.py`, `ocr.py`, and the Describe stage in `controller.py`.
 
 ## Capture
 
-- **Start/stop** on Meetily's `recording.started` / `recording.stopped` webhooks. Use the events' `occurred_at` so screenshot times line up with Meetily's `audio_start_time`.
-- **Window picker (decided):** a **small GUI** listing open windows with thumbnails; the user picks once per meeting.
-- **Window capture:** Windows Graphics Capture (`windows-capture` Python package) captures **one chosen window** even when covered, never notifications or other apps.
-- **Suggested option:** record the chosen window as a **low-frame-rate video (1 fps)** during the meeting (a few MB per minute), then run the lecture-to-notes-style extractor on it after `recording.stopped`. This lets us reuse their code almost directly and tune offline. Delete the video after processing. *(Not yet decided.)*
+- **Trigger:** Meetily's `recording.started` webhook. The app comes to the front over every other window with a **window picker**: thumbnails of open windows, the last-used one preselected. It stays on top until answered. Windows normally keeps a background app behind the active window; the app works around that, and the picker has its own sidebar entry so focus can't jump away from it.
+- **No answer:** after 45 s (Settings, 0 = keep waiting) the last-used window is captured. **Skip** means no capture; the meeting still gets a transcript-only summary.
+- **Recording:** Windows Graphics Capture (`windows-capture`) records **one window**, even when it's covered, never notifications or other apps. A writer thread saves the latest frame at a steady **1 fps**, so video time equals wall-clock time since the capture started. That is what lines screens up with Meetily's `audio_start_time`.
+- **Stop:** `recording.stopped` (or the window closing) stops the capture and queues extraction. The video is deleted afterwards unless Settings keeps it.
 
 ### Which window to pick
 
-The user may be **presenting or watching**.
+| User is… | Pick |
+| --- | --- |
+| **Presenting** | the window being shared (PowerPoint, the browser tab with the slides) |
+| **Watching** | the meeting tab (Meet, Zoom) |
 
-| User is… | Pick | Content area |
-| --- | --- | --- |
-| **Presenting** | the window being shared (PowerPoint, the browser tab with the slides) | mostly the whole window, minus the browser tab and address bars |
-| **Watching** | the Meet tab | the shared-content box, without participant tiles, chat or controls |
+Gotcha: when **presenting in Google Meet**, the Meet tab shows a "You are presenting" placeholder, not your slides. The picker warns when the selected window says that (a quick OCR check).
 
-Gotcha: when **presenting in Google Meet**, the Meet tab shows a "You are presenting" placeholder, **not** your slides. The picker should warn (cheap OCR check) if the user picks a Meet tab that says "You are presenting".
+## Distinct screens (adapted from [lecture-to-notes](https://github.com/drpwchen/lecture-to-notes), MIT)
 
-## Selection rules (decided)
+| Step | How |
+| --- | --- |
+| Sampling | one frame per second |
+| Grouping | perceptual hash of the centre 65%. A new screen starts when a frame differs from the previous one by more than 40 bits **or** from the group's first frame by more than 80 (drift, so slow scrolling doesn't stay one "slide"). The last frame of a group is kept, so a bullet-by-bullet slide is fully revealed |
+| Window chrome | OCR lines found in most groups (window title, tab bar, footer) are removed |
+| Bullet builds | neighbouring screens are merged when one's text contains the other's (`rapidfuzz partial_ratio ≥ 88`, < 60 s apart). The one with the longest text is kept |
+| Short screens | under 3 s (after merging) are dropped |
+| Output | `screenshots.json`: per screen `image`, `start`, `end`, `text`, `type`, `box`, `merged_from`; plus `layouts` |
 
-- **Minimum dwell ~3 s:** drop screens shown for less than that, **after** merging bullet-by-bullet slides (so a slide that builds over 20 s counts as one 20 s slide).
-- **Diagrams:** if OCR finds very little text, mark it as a diagram. Diagram images are sent to **Gemini** (decided Oct 2); everything else goes as OCR text only.
-- **Video / animation on screen:** if the content area changes every second for more than ~5 s, keep one representative frame and mark it as `video`.
-- **Every screenshot records start AND end time** (needed for the transcript window).
+## Content area (only what changes)
 
-**Output record per distinct screen:** image path, `start`, `end`, OCR text, content-area box, type (`slide` / `diagram` / `video` / `demo`).
+Browser tabs, bookmarks and side panels aren't meeting content. Read as text, they turned into summaries about "AI tools" (a vertical tab strip with ChatGPT, Gemini and so on). So only the content area is OCRed and kept:
 
-## Later: our target design (post-MVP)
+1. **Layouts:** the capture is cut wherever the window's **edges** (top and side strips) change a lot, such as going full screen or switching apps or tabs. One box can't fit both "page with tabs" and "video filling the window".
+2. **Per layout:** at low resolution (160 px wide), a pixel is **active** when it differs from its **median** in more than 6% of the frames. Rows and columns with enough active pixels give the box, plus a small margin.
+   - Earlier we counted changes between neighbouring frames. A single scroll or a full-screen switch then made the whole window count; against the median, a few seconds don't matter.
+3. **No box**, so the whole window is used, when less than 12% or more than 90% of it moves. That's correct for full screen, where everything is content.
+4. **Browser layouts where nothing moved** (a quiz card that holds still, a paused video): text in the browser's tab strip (top 9%) and side tabs (left 16%) is dropped from the OCR.
+5. **URLs** are never kept, and meeting-app UI words (Mute, Share, Leave, …) are dropped.
 
-### Change detection cascade (GD 4, Hari)
-Low-res layout check → content area (recompute on layout change) → pHash → OCR similarity vs previous → keep or discard. Ordered from cheap to expensive so OCR only runs on real candidates. Sample cheaply at ~1 fps; save at full resolution only on change.
+The screen image saved for each screen is its content area. The job log lists every layout and its box.
 
-### Content-area detection (any app; at least Meet and Zoom)
-No off-the-shelf solution exists for this. Existing tools either crop the centre (lecture-to-notes), crop camera footage of a lecture hall (lecture2notes, **AGPL, don't copy code**), or use the platform's separate screen-share stream (Recall.ai bots, Google Meet Media API), which is cloud-only and conflicts with local-first.
+## Screen descriptions
 
-Our plan, two cheap OpenCV methods together:
-1. **Temporal behaviour (works on any app):** over ~10 s at 1 fps, per small block of the window: toolbars almost never change; camera tiles change constantly but slightly; **shared content is static, then changes all at once**. Take the largest rectangle with that pattern. Also ignores a floating self-view. Needs a few seconds and one slide change to warm up.
-2. **Big rectangle (instant, one frame):** edge detection + contours → the largest roughly screen-shaped box (16:9 / 16:10, > ~30% of the window), confirmed by OCR text density. Can mistake a big speaker tile in speaker view.
+The vision model (the same Ollama model that writes the summary) describes **every** screen, pictures included. For a quiz, a product photo or a diagram, the picture *is* the content. The default prompt (editable in Settings) asks for:
 
-Use method 2 for the first guess, method 1 to confirm or correct it, rerun on a layout change, and fall back to the whole window (correct for presenting anyway).
+1. what kind of screen it is (slide, quiz question, chart, document, website, video frame) and its title or question
+2. all the text, exactly as written, including blanks like `C__W`
+3. every picture, object, animal and person (by role, not looks), with counts and any marks (ticks, crosses, circles, arrows) and what they point to
+4. for charts and tables: labels, values, what is biggest or changing
 
-**Develop offline:** record 2–3 min clips (OBS / Game Bar) of Meet while watching a share, Zoom sharing, and speaker view. Tune on those; reuse them as demo material.
+It also says: only what's visible, nothing about what isn't there, and colours only when they carry meaning. Example: *"Find the biggest fruit? … a watermelon, a peach, a mango, an avocado, raspberries; a large green checkmark is over the watermelon."*
 
-### Deferred
-- **Cursor / click tracking for product demos** (GD 4, Saran): out of scope for 30 h. Cheap alternative later: compare consecutive frames to localise where interaction happened, no model.
-- **Demos in general:** stretch goal. The hackathon demo targets **slides + diagrams**.
+- **Answers are tidied:** repeated sentences and cut-off endings are removed, and at most 14 sentences are kept.
+- **Failures are retried:** an empty answer or an Ollama error gets one more try (Ollama is restarted if it crashed). An empty answer is never saved.
+- **Older meetings:** Meetings > Screens > **Describe screens again** redoes every screen with the current prompt.
+- **Choosing what's described:** Settings > Describe screens: every screen / only screens with little text / none.
+- **Speed:** about 4–11 s per screen on a 4 GB RTX 2050 (GPU) with `qwen3-vl:2b-instruct`; on CPU, about 30 s.
+
+## Not done (ideas)
+
+- Content area inside a meeting tab while **watching** (the shared-content box without participant tiles): the per-layout median finds the moving area, which can include camera tiles.
+- Cursor and click tracking for product demos.

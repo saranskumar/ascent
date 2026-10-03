@@ -1,6 +1,6 @@
 ﻿# Meetily Visual Copilot - Idea
 
-> **Status update, Oct 2 (hackathon day):** Feature 1 (screen-grounded summary) is the priority and is being built as a Meetily Pro workflow that writes the enriched summary back into Meetily. Feature 2 (live Visual Copilot) is **on hold**: Meetily Pro does not expose the transcript until a recording stops (`409 recording_in_progress`). See [tech/summary-pipeline.md](../tech/summary-pipeline.md), [tech/copilot-live-transcript.md](../tech/copilot-live-transcript.md) and [tech/meetily-api-findings.md](../tech/meetily-api-findings.md). The text below is the original registration pitch.
+> **Status, Oct 3:** Feature 1 (screen-grounded summary) is **built**, as the offline desktop app in [`code/main`](../../code/main/README.md). It captures the presented window, describes every screen with a local vision model, merges the screens with Meetily's transcript by time, writes a detailed summary with the same local model and puts it back into Meetily. Feature 2 (live Visual Copilot) is not part of the project. See [tech/README.md](../tech/README.md) and [tech/summary-pipeline.md](../tech/summary-pipeline.md). The text below is the original registration pitch.
 
 Detailed problem/solution write-up used for the PPT: **[problem-solution.md](problem-solution.md)** (adapted from `drops/initial_idea.md`).
 
