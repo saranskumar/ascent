@@ -376,3 +376,52 @@ def test_recording_default_name_counts_as_untitled():
     from core.writeback import DEFAULT_TITLE
     assert DEFAULT_TITLE.match("[Recording] 2026-10-03 05:46") and DEFAULT_TITLE.match("New Meeting 4:36 PM")
     assert not DEFAULT_TITLE.match("Kids IQ quiz review")
+
+
+def test_chunker_keeps_lines_whole_and_overlaps():
+    from core.summarizer import chunk_text, rough_token_count
+    lines = [f"[{i:02d}:00] Speaker {i % 3}: point number {i} about the release plan." for i in range(300)]
+    text = "\n".join(lines)
+    chunks = chunk_text(text, 500, 100)
+    assert len(chunks) > 3
+    assert all(rough_token_count(c) <= 520 for c in chunks)
+    assert all(c.splitlines()[0] in lines and c.splitlines()[-1] in lines for c in chunks)   # whole lines
+    assert set(chunks[0].splitlines()) & set(chunks[1].splitlines())                       # overlap
+    assert all(any(ln in c for c in chunks) for ln in lines)                               # nothing lost
+    assert chunk_text("short", 500) == ["short"]
+
+
+def test_long_meeting_is_summarized_in_parts_then_combined(setup):
+    """Context too small for the transcript: chunk summaries, a combine pass, then the template."""
+    make, oll = setup
+    ctl, meet = make()
+    long_segs = [{"text": f"Item {i}: we will ship feature {i} next week, can you test it Ravi?",
+                  "audio_start_time": float(i * 5)} for i in range(400)]
+    meet.get_transcript = lambda mid: {"segments": long_segs}
+    ctl.settings.update({"num_ctx": 4096, "max_tokens": 600})
+    run = make_run(ctl)
+    job = ctl.queue.create(run=run, title="t", meeting_id="meeting-1", stages=["summarize"])
+    wait_for(lambda: ctl.queue.get(job["id"])["status"] in ("done", "failed"), timeout=30)
+    j = ctl.queue.get(job["id"])
+    assert j["status"] == "done", j["log"]
+    log = "\n".join(j["log"])
+    assert "summarizing" in log and "parts, then combining them" in log and "part 1/" in log
+    systems = [r["messages"][0]["content"] for r in oll.requests]
+    assert any(s == "You are an expert meeting summarizer." for s in systems)            # chunk pass
+    assert any("synthesizing" in s for s in systems)                                      # combine
+    assert "Questions & Answers" in systems[-1] and "Work Flow" in systems[-1]            # detailed
+    meta = json.loads((ctl.store.run_dir(run) / "summary.meta.json").read_text("utf-8"))
+    assert meta["chunks"] > 1 and meta["template"] == "Detailed Meeting Notes"
+
+
+def test_templates_load_and_detailed_is_default():
+    from core.prompts import build_system_prompt, get_template, load_templates
+    ts = load_templates()
+    assert {"detailed", "standard_meeting", "project_sync", "daily_standup"} <= set(ts)
+    t = get_template(None)
+    assert [s["title"] for s in t["sections"]] == ["Summary", "Key Points", "Questions & Answers",
+                                                   "Steps / Demo", "Work Flow", "Key Decisions",
+                                                   "Action Items"]
+    sp = build_system_prompt(t=t)
+    assert "| **Question** | Answer | Asked by | Time |" in sp and "**Steps / Demo**" in sp
+    assert get_template("nope")["name"] == "Detailed Meeting Notes"

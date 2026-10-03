@@ -1,0 +1,44 @@
+{
+  "name": "Detailed Meeting Notes",
+  "description": "Everything that happened: points with their answers, questions and answers, steps of a demo, how the work flows, decisions and who does what.",
+  "sections": [
+    {
+      "title": "Summary",
+      "instruction": "A short paragraph: what the meeting was about and what came out of it",
+      "format": "paragraph"
+    },
+    {
+      "title": "Key Points",
+      "instruction": "The main points, in the order they came up, one bullet each. When a point got an answer, a result or a conclusion, write it right after the point as: point - answer. Use the screen only to say what a speaker pointed at",
+      "format": "list"
+    },
+    {
+      "title": "Questions & Answers",
+      "instruction": "Every question that was asked, and the answer that was given. A question can be spoken, or shown on screen and then answered by a speaker. Write Not answered when there was no answer. Use the speaker's name if known and the time of the question",
+      "format": "list",
+      "item_format": "| **Question** | Answer | Asked by | Time |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "Steps / Demo",
+      "instruction": "If something was demonstrated or a procedure was explained, the steps in order as a numbered list, each with what was done or shown at that step and its time. Write None noted in this section. when nothing was demonstrated or explained step by step",
+      "format": "list"
+    },
+    {
+      "title": "Work Flow",
+      "instruction": "How the work moves, only as the speakers described it: which task comes first, what depends on what, and who hands what to whom (e.g. Design by Asha -> review by Ravi -> release). Write None noted in this section. when nobody described it",
+      "format": "list"
+    },
+    {
+      "title": "Key Decisions",
+      "instruction": "Decisions the speakers made, with the reason if one was given and the time",
+      "format": "list",
+      "item_format": "| **Decision** | Reason | Time |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Action Items",
+      "instruction": "Every task someone was given or took on: the owner, the task, the due date if one was said, and the transcript segment and time where it was said. Only tasks a speaker said",
+      "format": "list",
+      "item_format": "| **Owner** | Task | Due | Reference Transcript Segment | Segment Time stamp |\n| --- | --- | --- | --- | --- |"
+    }
+  ]
+}

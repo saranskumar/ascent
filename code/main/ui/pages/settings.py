@@ -50,7 +50,23 @@ class SettingsPage(QWidget):
                            "summary. qwen3-vl:2b-instruct is the default; pull a 4B model with "
                            "Ollama and it appears here.", "small", wrap=True))
         m.addRow("Run on", self.device)
+        self.template = QComboBox()
+        from core.prompts import load_templates
+        for tid, t in load_templates().items():
+            self.template.addItem(t.get("name", tid) + ("  (default)" if tid == "detailed" else ""), tid)
+            self.template.setItemData(self.template.count() - 1, t.get("description", ""),
+                                      Qt.ItemDataRole.ToolTipRole)
+        self._add("template", self.template, lambda: self.template.currentData(),
+                  lambda v: self.template.setCurrentIndex(max(0, self.template.findData(v))))
+        m.addRow("Summary template", self.template)
+        m.addRow("", label("Detailed: key points with answers, questions & answers, steps / demo, "
+                           "work flow, decisions, action items. The others are Meetily's templates.",
+                           "small", wrap=True))
         m.addRow("Context size (tokens)", self._num("num_ctx"))
+        m.addRow("Split long meetings at (tokens)", self._num("chunk_tokens"))
+        m.addRow("", label("0 = automatic: a meeting that doesn't fit the context is summarized in "
+                           "parts, then the parts are combined (Meetily's method). A smaller context "
+                           "uses less memory.", "small", wrap=True))
         m.addRow("Summary max tokens", self._num("max_tokens"))
         m.addRow("Temperature", self._num("temperature", decimals=2))
         m.addRow("Repeat penalty", self._num("repeat_penalty", decimals=2))

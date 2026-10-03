@@ -49,6 +49,8 @@ DEFAULTS: dict = {
     "device": "cpu",              # "cpu" (num_gpu 0) or "gpu" (Ollama decides how many layers fit)
     "num_ctx": 16384,             # Ollama's default 4096 would cut long transcripts
     "max_tokens": 2000,           # summary length cap
+    "template": "detailed",       # summary template (core/templates/<id>.json)
+    "chunk_tokens": 0,            # 0 = split long meetings only when they don't fit num_ctx
     "temperature": 0.3,
     "repeat_penalty": 1.15,      # >1 stops small models from looping the same sentence
     "vlm_max_tokens": 500,        # per screen description
@@ -88,7 +90,7 @@ DEFAULTS: dict = {
 
 # Typed groups for the Settings page (key, label, hint). Order = display order.
 NUMBER_LIMITS = {
-    "num_ctx": (2048, 131072, 1024), "max_tokens": (200, 16000, 100),
+    "num_ctx": (2048, 131072, 1024), "chunk_tokens": (0, 65536, 500), "max_tokens": (200, 16000, 100),
     "temperature": (0.0, 2.0, 0.05), "repeat_penalty": (1.0, 2.0, 0.05), "vlm_max_tokens": (50, 2000, 10),
     "vlm_max_side": (256, 4096, 64), "request_timeout": (60, 7200, 30),
     "interval": (0.25, 30.0, 0.25), "hash_threshold": (1, 512, 1),

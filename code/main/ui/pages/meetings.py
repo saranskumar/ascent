@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDouble
                              QStackedWidget, QTableWidget, QTableWidgetItem, QTabWidget,
                              QTextBrowser, QWidget)
 
-from core.prompts import build_system_prompt
+from core.prompts import build_system_prompt, build_user_prompt, get_template
 from core.store import read_json
 from core.transcript import build_input
 from core.writeback import summary_text
@@ -608,7 +608,8 @@ class MeetingsPage(QWidget):
         def work():
             segs = (self.store.transcript(mid) or {}).get("segments") or [] if mid else []
             text = build_input(segs, d["screenshots"], offset, self.store.speaker_names(mid))
-            return f"=== SYSTEM ===\n{build_system_prompt()}\n\n=== USER ===\n<transcript_chunks>\n{text}\n</transcript_chunks>"
+            system = build_system_prompt(t=get_template(self.ctl.settings["template"]))
+            return f"=== SYSTEM ===\n{system}\n\n=== USER ===\n{build_user_prompt(text)}"
         self.model_input.setPlainText("Building…")
         run_async(work, self.model_input.setPlainText,
                   lambda e: self.model_input.setPlainText(f"Couldn't build the input: {e}"))
