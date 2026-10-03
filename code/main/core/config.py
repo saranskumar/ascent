@@ -14,6 +14,17 @@ from .extractor import Params
 
 DEFAULT_MODEL = "qwen3-vl:2b-instruct"
 
+# What the vision model is asked about each screen. Pictures matter (a quiz's fruit and animals,
+# a product photo): it names what is shown and reads the words, so a spoken "find the biggest
+# fruit" can be tied to what was on screen.
+VLM_PROMPT = ("This is a screen shown in a meeting. Say what it shows in 1-2 plain sentences: name "
+              "the objects, animals, people (by their role, not their looks) and pictures, and read "
+              "out any words, letters and numbers. For a chart or diagram, give the labels, the "
+              "values and how the parts relate. Do not describe colours or layout.")
+OLD_VLM_PROMPTS = {"This is a screen shown in a meeting. State the facts it shows in 2-3 plain "
+                   "sentences: titles, labels, numbers, and how the parts relate. Do not describe "
+                   "colours or layout."}
+
 DEFAULTS: dict = {
     # ---- model (Ollama, local)
     "model": DEFAULT_MODEL,
@@ -25,9 +36,8 @@ DEFAULTS: dict = {
     "repeat_penalty": 1.15,      # >1 stops small models from looping the same sentence
     "vlm_max_tokens": 250,        # per diagram description
     "vlm_max_side": 1024,         # downscale long side before sending (main speed lever)
-    "vlm_prompt": ("This is a screen shown in a meeting. State the facts it shows in 2-3 plain "
-                   "sentences: titles, labels, numbers, and how the parts relate. Do not describe "
-                   "colours or layout."),
+    "vlm_prompt": VLM_PROMPT,
+    "describe_screens": "all",    # all | diagrams (screens with little text) | none
     "start_ollama": True,         # start Ollama with the app, and again if it stops
     "keep_loaded": True,          # keep the model in memory while jobs are queued
     "request_timeout": 900,       # seconds without a single token before a call is abandoned
@@ -81,6 +91,8 @@ class Settings:
             try:
                 saved = json.loads(self.file.read_text("utf-8"))
                 self._s.update({k: v for k, v in saved.items() if k in DEFAULTS})
+                if self._s.get("vlm_prompt") in OLD_VLM_PROMPTS:   # untouched old default
+                    self._s["vlm_prompt"] = VLM_PROMPT
             except ValueError:
                 pass
 

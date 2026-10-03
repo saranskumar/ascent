@@ -98,6 +98,40 @@ def clean_output(text: str | None, cut_short: bool = False) -> str:
     return normalize_spacing(t)
 
 
+# Words people use when they decide or hand out work. Without any of them in the speech, the
+# Decisions / Action Items a small model writes are made up (seen live: "develop an updated
+# version within 48 hours" from a kids' quiz video nobody planned anything about).
+COMMITMENT = re.compile(
+    r"\b(we(?:'ll| will| should| need to| have to| must| agreed| decided| can)|let'?s|let us|"
+    r"i(?:'ll| will) (?:do|send|take|check|follow|share|get|write|handle|look|fix|call|set)|"
+    r"(?:can|could|would) you|please|decid\w*|agree\w*|deadline|action item|to-?do|assign\w*|"
+    r"by (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight|next|end of|eod)|"
+    r"next (?:week|meeting|sprint|step)s?|follow[- ]up)\b", re.I)
+SECTIONS_NEEDING_SPEECH = ("Key Decisions", "Action Items")
+
+
+def has_commitments(segments: list[dict]) -> bool:
+    return any(COMMITMENT.search(s.get("text") or "") for s in segments)
+
+
+def clear_unspoken_commitments(text: str, segments: list[dict]) -> str:
+    """If nobody said anything like a decision or a task, those sections are 'None noted'."""
+    if has_commitments(segments):
+        return text
+    out, skipping = [], False
+    for line in text.split("\n"):
+        header = re.fullmatch(r"\s*\*\*([^*]+)\*\*\s*", line)
+        if header:
+            skipping = header.group(1).strip() in SECTIONS_NEEDING_SPEECH
+            out.append(line)
+            if skipping:
+                out.extend(["", "None noted in this section.", ""])
+            continue
+        if not skipping:
+            out.append(line)
+    return normalize_spacing("\n".join(out))
+
+
 def build_messages(segments: list[dict], shots: list[dict], offset: float = 0.0,
                    speaker_names: dict[str, str] | None = None) -> list[dict]:
     transcript_text = build_input(segments, shots, offset, speaker_names)
@@ -124,4 +158,5 @@ def summarize(client: Ollama, model: str, segments: list[dict], shots: list[dict
     if info is not None:
         info.update({k: out.get(k) for k in ("eval_count", "prompt_eval_count", "seconds",
                                              "done_reason")}, model=model)
-    return clean_output(out["text"], cut_short=out.get("done_reason") == "length")
+    text = clean_output(out["text"], cut_short=out.get("done_reason") == "length")
+    return clear_unspoken_commitments(text, segments)
