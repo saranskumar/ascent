@@ -70,6 +70,12 @@ def test_window_pages_and_flows(app, tmp_path):
     ctl.queue.log(queued["id"], "hello from the test")
     pump(app)
     assert "hello from the test" in live.log.toPlainText()
+    # the race seen live: a line is logged, the view fully reloads (status change) before the
+    # line's notification arrives -> it must still be shown once, not twice
+    ctl.queue.log(queued["id"], "only once please")
+    live._show_detail(full=True)
+    pump(app)
+    assert live.log.toPlainText().count("only once please") == 1
 
     # Meetings: the run is listed and its summary renders
     win.open_run(run)

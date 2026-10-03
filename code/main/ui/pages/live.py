@@ -127,6 +127,7 @@ class LivePage(QWidget):
         self.ctl, self.q, self.bridge = ctl, ctl.queue, bridge
         self.rows: dict[str, tuple[QListWidgetItem, JobRow]] = {}
         self.selected: str | None = None
+        self._log_shown = 0
         self.dirty: set[str] = set()
         self.structure_dirty = True
 
@@ -390,7 +391,9 @@ class LivePage(QWidget):
             row.show(job["stages"][i] if i < len(job["stages"]) else None)
         self.preview_card.setVisible(s == "capturing" and self.ctl.capture_job == job["id"])
         if full:
-            self.log.setPlainText("\n".join(job.get("log") or []))
+            lines = list(job.get("log") or [])
+            self.log.setPlainText("\n".join(lines))
+            self._log_shown = len(lines)            # what the view already has
             self.log.moveCursor(QTextCursor.MoveOperation.End)
             self._load_output(job)
 
@@ -405,9 +408,20 @@ class LivePage(QWidget):
         else:
             self.output.setPlainText(streamed or "The summary appears here while the model writes it.")
 
-    def _on_log(self, jid: str, line: str) -> None:
-        if jid == self.selected:
+    def _on_log(self, jid: str, _line: str) -> None:
+        """Append the lines not shown yet. The notification can arrive after a full reload that
+        already included its line (seen live: every line twice after a Retry), so lines are
+        counted, never appended blindly."""
+        if jid != self.selected:
+            return
+        job = self.q.get(jid)
+        lines = (job or {}).get("log") or []
+        if len(lines) < self._log_shown:           # trimmed to MAX_LOG: start over
+            self._log_shown = 0
+            self.log.clear()
+        for line in lines[self._log_shown:]:
             self.log.appendPlainText(line)
+        self._log_shown = len(lines)
 
     def _on_token(self, jid: str, piece: str) -> None:
         if jid != self.selected:
