@@ -10,7 +10,7 @@ import re
 from .ollama import Ollama
 from .prompts import (CHUNK_SYSTEM, COMBINE_SYSTEM, build_chunk_prompt, build_combine_prompt,
                       build_system_prompt, build_user_prompt, get_template)
-from .transcript import build_input
+from .transcript import build_input, mmss, screen_lines
 
 
 class SummaryError(Exception):
@@ -213,6 +213,8 @@ def summarize(client: Ollama, model: str, segments: list[dict], shots: list[dict
         budget = min(budget, max(400, int(chunk_tokens)))
     total = rough_token_count(source)
     stats = {"chunks": 1, "calls": 0, "source_tokens": total, "budget_tokens": budget}
+    parts: list[dict] = []          # per-part summaries, saved with the meeting
+    combined = ""
 
     def call(system_prompt: str, user: str, stream: bool = False) -> dict:
         stats["calls"] += 1
@@ -226,17 +228,20 @@ def summarize(client: Ollama, model: str, segments: list[dict], shots: list[dict
         log(f"transcript + screens ~{total} tokens: fits the model's context in one pass")
         user = build_user_prompt(source)
     else:
-        chunks = chunk_text(source, budget, 100)
+        chunks = [carry_screens(c, shots, offset) for c in chunk_text(source, budget, 100)]
         stats["chunks"] = len(chunks)
         log(f"transcript + screens ~{total} tokens, more than fits one call (~{budget}): "
-            f"summarizing {len(chunks)} parts, then combining them (Meetily's method)")
+            f"summarizing {len(chunks)} parts along the timeline, then combining them "
+            f"(Meetily's method)")
         notes = []
         for i, chunk in enumerate(chunks, 1):
             progress(0.05 + 0.55 * (i - 1) / len(chunks), f"part {i}/{len(chunks)}")
             out = call(CHUNK_SYSTEM, build_chunk_prompt(chunk, i, len(chunks)))
             note = clean_output(out["text"], cut_short=out.get("done_reason") == "length")
             notes.append(note)
-            log(f"part {i}/{len(chunks)} summary:\n" + note)
+            span = chunk_span(chunk)
+            parts.append({"part": i, "from": span[0], "to": span[1], "summary": note})
+            log(f"part {i}/{len(chunks)} ({span[0]}-{span[1]}) summary:\n" + note)
         rnd = 0
         while len(notes) > 1 and rough_token_count(build_combine_prompt(notes)) > budget:
             rnd += 1                         # still too long for one combine: combine in groups
@@ -266,5 +271,38 @@ def summarize(client: Ollama, model: str, segments: list[dict], shots: list[dict
         info.update({k: out.get(k) for k in ("eval_count", "prompt_eval_count", "seconds",
                                              "done_reason")}, model=model, template=template.get("name"),
                     **stats)
+        info["parts"], info["combined"] = parts, combined
     text = clean_output(out["text"], cut_short=out.get("done_reason") == "length")
     return clear_unspoken_commitments(text, segments)
+
+
+_TIME = re.compile(r"^\[(\d+):(\d{2})(?::(\d{2}))?\]", re.M)
+
+
+def _secs(m) -> float:
+    a, b, c = m.group(1), m.group(2), m.group(3)
+    return int(a) * 3600 + int(b) * 60 + int(c) if c else int(a) * 60 + int(b)
+
+
+def chunk_span(chunk: str) -> tuple[str, str]:
+    """First and last [MM:SS] of a part, for the log and the saved part summaries."""
+    times = [_secs(m) for m in _TIME.finditer(chunk)]
+    if not times:
+        return "?", "?"
+    return mmss(min(times)), mmss(max(times))
+
+
+def carry_screens(chunk: str, shots: list[dict], offset: float = 0.0) -> str:
+    """A screen still showing when a part starts belongs to that part too: its [SCREEN] line sits
+    only in the part where it first appeared, so speech in the next part ("as you can see…")
+    would lose it. Repeat it at the top of the part, marked as still on screen."""
+    first = _TIME.search(chunk)
+    if not first or not shots:
+        return chunk
+    t0 = _secs(first)
+    carried = []
+    for t, line in screen_lines(shots, offset):
+        shot_end = next((s["end"] + offset for s in shots if abs(s["start"] + offset - t) < 0.01), t)
+        if t < t0 < shot_end and line not in chunk:
+            carried.append(line.replace("[SCREEN] (", "[SCREEN] (still on screen; ", 1))
+    return "\n".join(carried + [chunk]) if carried else chunk

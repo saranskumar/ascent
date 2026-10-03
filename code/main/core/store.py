@@ -146,7 +146,8 @@ class Store:
                 "published": read_json(d / "published.json"),
                 "pending": read_json(d / "pending_overwrite.json"),
                 "kept": read_json(d / "kept_meetily.json"),
-                "backups": backups}
+                "backups": backups,
+                "parts": read_json(d / "summary_parts.json")}
 
     def screenshots(self, run_id: str) -> dict:
         doc = read_json(self.run_dir(run_id) / "screenshots.json")
