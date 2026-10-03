@@ -165,6 +165,9 @@ class MeetingsPage(QWidget):
         sc_tab = QWidget()
         sc_tab.setLayout(vbox(hbox(self.sc_status, None,
                                    button("View full size", on_click=self.view_screen),
+                                   button("Describe screens again", on_click=self.redescribe,
+                                          tip="Ask the vision model about every screen again (uses the "
+                                              "screen prompt in Settings), then you can regenerate"),
                                    button("Open images folder", "ghost", self.open_images)),
                               sc_split, margins=(8, 8, 8, 8)))
 
@@ -500,6 +503,21 @@ class MeetingsPage(QWidget):
         self.screen_img.clear()
         if d["screenshots"]:
             self.screens.setCurrentRow(0)
+
+    def redescribe(self) -> None:
+        d = self.detail_data
+        if not d or not d["screenshots"]:
+            return
+        r = QMessageBox.question(self, "Describe screens again",
+                                 f"Describe all {len(d['screenshots'])} screens again with the current "
+                                 "screen prompt?\n\nYes = describe, then write a new summary\n"
+                                 "No = only describe",
+                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                                 | QMessageBox.StandardButton.Cancel)
+        if r == QMessageBox.StandardButton.Cancel:
+            return
+        job = self.ctl.redescribe(self.run_id, summarize=r == QMessageBox.StandardButton.Yes)
+        self.window().show_live(job["id"])
 
     def view_screen(self) -> None:
         d = self.detail_data

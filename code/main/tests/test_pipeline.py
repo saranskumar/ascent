@@ -324,3 +324,33 @@ def test_made_up_decisions_are_cleared_when_nobody_committed_to_anything():
     # a real commitment keeps them
     meeting = quiz + [{"text": "Can you send the deck by Friday?"}]
     assert has_commitments(meeting) and clear_unspoken_commitments(report, meeting) == report
+
+
+def test_bad_saved_settings_fall_back_to_defaults(tmp_path):
+    """Seen live: describe_screens = null in settings.json made Describe skip every screen."""
+    import json
+    from core.config import Settings
+    (tmp_path / "settings.json").write_text(json.dumps(
+        {"describe_screens": None, "device": "gpu", "vlm_max_tokens": 250, "theme": "purple",
+         "max_tokens": "lots"}), "utf-8")
+    s = Settings(tmp_path)
+    assert s["describe_screens"] == "all" and s["device"] == "gpu" and s["vlm_max_tokens"] == 500
+    assert s["theme"] == "system" and s["max_tokens"] == 2000
+    s.update({"describe_screens": "everything"})                # not a valid choice: ignored
+    assert s["describe_screens"] == "all"
+
+
+def test_describe_again_redoes_every_screen(setup):
+    make, oll = setup
+    ctl, _ = make()
+    run = make_run(ctl)
+    doc = ctl.store.screenshots(run)
+    for sh in doc["screenshots"]:
+        sh["description"] = "old description"
+    ctl.store.save_screenshots(run, doc)
+    job = ctl.redescribe(run)
+    wait_for(lambda: ctl.queue.get(job["id"])["status"] in ("done", "failed"))
+    assert ctl.queue.get(job["id"])["status"] == "done"
+    assert all(s["description"] == "A bar chart of Q3 costs by team."
+               for s in ctl.store.screenshots(run)["screenshots"])
+    assert [s["name"] for s in ctl.queue.get(job["id"])["stages"]] == ["describe"]

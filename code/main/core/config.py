@@ -17,13 +17,30 @@ DEFAULT_MODEL = "qwen3-vl:2b-instruct"
 # What the vision model is asked about each screen. Pictures matter (a quiz's fruit and animals,
 # a product photo): it names what is shown and reads the words, so a spoken "find the biggest
 # fruit" can be tied to what was on screen.
-VLM_PROMPT = ("This is a screen shown in a meeting. Say what it shows in 1-2 plain sentences: name "
-              "the objects, animals, people (by their role, not their looks) and pictures, and read "
-              "out any words, letters and numbers. For a chart or diagram, give the labels, the "
-              "values and how the parts relate. Do not describe colours or layout.")
-OLD_VLM_PROMPTS = {"This is a screen shown in a meeting. State the facts it shows in 2-3 plain "
-                   "sentences: titles, labels, numbers, and how the parts relate. Do not describe "
-                   "colours or layout."}
+VLM_PROMPT = (
+    "Describe this screen from a meeting so that someone who cannot see it knows exactly what is "
+    "on it. Cover, in plain sentences:\n"
+    "1. What kind of screen it is (slide, quiz question, chart, table, document, website, app, "
+    "video frame) and its title or question.\n"
+    "2. All the text you can read, copied exactly as written: headings, labels, words, letters, "
+    "blanks like C__W, numbers and dates.\n"
+    "3. Every picture, object, animal, person (by their role, not their looks) and icon, with how "
+    "many of each, and any marks on them: ticks, crosses, circles, arrows, highlights, and which "
+    "item they point to.\n"
+    "4. For a chart, table or diagram: the axes or column names, every label with its value, and "
+    "what is biggest, smallest or changing.\n"
+    "Only say what is visible; don't list what is not there, don't guess or give opinions. "
+    "Mention a colour only when it carries "
+    "meaning (a green tick, a red cross). Skip logos, watermarks and video player buttons.")
+OLD_VLM_PROMPTS = {
+    "This is a screen shown in a meeting. State the facts it shows in 2-3 plain sentences: titles, "
+    "labels, numbers, and how the parts relate. Do not describe colours or layout.",
+    "This is a screen shown in a meeting. Say what it shows in 1-2 plain sentences: name the "
+    "objects, animals, people (by their role, not their looks) and pictures, and read out any "
+    "words, letters and numbers. For a chart or diagram, give the labels, the values and how the "
+    "parts relate. Do not describe colours or layout.",
+}
+OLD_VLM_MAX_TOKENS = {250}           # earlier defaults, too short for the detailed prompt
 
 DEFAULTS: dict = {
     # ---- model (Ollama, local)
@@ -34,7 +51,7 @@ DEFAULTS: dict = {
     "max_tokens": 2000,           # summary length cap
     "temperature": 0.3,
     "repeat_penalty": 1.15,      # >1 stops small models from looping the same sentence
-    "vlm_max_tokens": 250,        # per diagram description
+    "vlm_max_tokens": 500,        # per screen description
     "vlm_max_side": 1024,         # downscale long side before sending (main speed lever)
     "vlm_prompt": VLM_PROMPT,
     "describe_screens": "all",    # all | diagrams (screens with little text) | none
@@ -80,6 +97,20 @@ NUMBER_LIMITS = {
 }
 
 
+CHOICES = {"device": {"cpu", "gpu"}, "describe_screens": {"all", "diagrams", "none"},
+           "theme": {"system", "light", "dark"}}
+
+
+def _fits(v, default) -> bool:
+    """A saved value is used only if it has the default's type (a null or a typo in
+    settings.json falls back to the default; seen live: describe_screens = null)."""
+    if isinstance(default, bool):
+        return isinstance(v, bool)
+    if isinstance(default, (int, float)):
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, type(default))
+
+
 class Settings:
     """Thread-safe dict-like settings with type-checked updates."""
 
@@ -90,9 +121,14 @@ class Settings:
         if self.file.exists():
             try:
                 saved = json.loads(self.file.read_text("utf-8"))
-                self._s.update({k: v for k, v in saved.items() if k in DEFAULTS})
+                self._s.update({k: v for k, v in saved.items() if k in DEFAULTS and _fits(v, DEFAULTS[k])})
+                for k, allowed in CHOICES.items():
+                    if self._s.get(k) not in allowed:
+                        self._s[k] = DEFAULTS[k]
                 if self._s.get("vlm_prompt") in OLD_VLM_PROMPTS:   # untouched old default
                     self._s["vlm_prompt"] = VLM_PROMPT
+                if self._s.get("vlm_max_tokens") in OLD_VLM_MAX_TOKENS:
+                    self._s["vlm_max_tokens"] = DEFAULTS["vlm_max_tokens"]
             except ValueError:
                 pass
 
@@ -122,6 +158,8 @@ class Settings:
                 elif isinstance(d, int) and isinstance(v, (int, float)) and not isinstance(v, bool):
                     v = int(v)
                 elif not isinstance(v, type(d)):
+                    continue
+                if k in CHOICES and v not in CHOICES[k]:
                     continue
                 self._s[k] = v
             self.file.parent.mkdir(parents=True, exist_ok=True)

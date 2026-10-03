@@ -408,6 +408,14 @@ class Controller:
                 self.queue.resolve(j["id"], note="summary sent to Meetily from the Meetings tab")
         return {"status": "sent", "record": record}
 
+    def redescribe(self, run: str, summarize: bool = False) -> dict:
+        """Describe every screen of a run again (e.g. after changing the screen prompt)."""
+        m = self.store.meta(run)
+        stages = ["describe"] + (["summarize", "publish"] if summarize and m.get("meeting_id") else [])
+        return self.queue.create(run=run, title=m.get("meeting_title") or run,
+                                 meeting_id=m.get("meeting_id"), stages=stages, source="regenerate",
+                                 options={"redescribe": True})
+
     def publish_run(self, run: str, meeting_id: str) -> dict:
         title = self.store.meta(run).get("meeting_title") or run
         return self.queue.create(run=run, title=title, meeting_id=meeting_id, stages=["publish"],
@@ -448,8 +456,9 @@ class Controller:
         if mode == "none":
             ctx.log("describing screens is off (Settings > Model)")
             return "skipped"
-        todo = [x for x in doc["screenshots"] if not x.get("description")
-                and (mode == "all" or x.get("type") in ("diagram", "picture"))]
+        again = bool(job["options"].get("redescribe"))
+        todo = [x for x in doc["screenshots"] if (again or not x.get("description"))
+                and (again or mode == "all" or x.get("type") in ("diagram", "picture"))]
         if not todo:
             ctx.log("every screen is already described" if doc["screenshots"] else "no screens")
             return "skipped"
