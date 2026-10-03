@@ -59,6 +59,8 @@ python run.py
 
 ## Files
 
+How the pieces fit together (threads, event flow, job queue, persistence): [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```
 run.py              entry point (tray app, single instance)
 core/               no UI: controller (stages, decisions, webhook automation), jobs (queue),

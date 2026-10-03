@@ -14,6 +14,7 @@ Documentation for **Meetily Visual Copilot** (Team TUF).
 | [Live co-pilot status](tech/copilot-live-transcript.md) | Live co-pilot status, transcript-source options and what was chosen |
 | [Live co-pilot code](../code/copilot/README.md) | 3-part split, message contract, image engine ([engine README](../code/copilot/engine/README.md)) |
 | [Live co-pilot architecture](../code/copilot/ARCHITECTURE.md) | Components, engine paths, GUI, sequence diagram, decisions and fallbacks |
+| [Main app architecture](../code/main/ARCHITECTURE.md) | Threads, event flow, job queue and persistence of the desktop app (`code/main`) |
 | [Visual summary code](../code/extraction-test/README.md) | Capture, OCR, Gemini summary, Meetily write-back |
 | [Visual summary architecture](../code/extraction-test/ARCHITECTURE.md) | Components, extraction pipeline, webhook flow, decisions and fallbacks |
 | [Group discussions](../GD/README.md) | Team discussion logs |
