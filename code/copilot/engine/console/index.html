@@ -163,6 +163,7 @@
 <div id="lightbox"><img id="lbImg" alt=""><div><a id="lbLink" target="_blank" rel="noopener"></a></div></div>
 
 <script>
+const qs = e => (e.queries && e.queries.length > 1 ? e.queries : [e.query]).map(q => `<div><code class="q">${esc(q)}</code></div>`).join("");
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const hhmmss = t => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
@@ -285,10 +286,10 @@ function onEvent(e) {
       r.el.classList.add("quiet");
       break;
     case "search_start":
-      step(r, "search", "Search", `<code class="q">${esc(e.query)}</code> <span class="spin">searching</span>`);
+      step(r, "search", "Search", `${qs(e)} <span class="spin">searching</span>`);
       break;
     case "search":
-      step(r, "search", "Search", `<code class="q">${esc(e.query)}</code><br><span class="chips">${e.providers.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</span>
+      step(r, "search", "Search", `${qs(e)}<br><span class="chips">${e.providers.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</span>
         <span class="tally">${e.n} candidates · ${e.secs}s</span>`);
       break;
     case "fetch": {

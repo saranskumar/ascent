@@ -146,14 +146,14 @@ def _keys(text: str) -> set[str]:
             if len(w) > 2 and w not in KIND_WORDS}
 
 
-def search_all(query: str, n: int = 20) -> tuple[list[Candidate], list[str]]:
+def search_all(query: str, n: int = 20, quick: bool = False) -> tuple[list[Candidate], list[str]]:
     """Race the first two usable providers: when one answers, give the other GRACE seconds, then
     merge whatever is in (provider order, no duplicate URLs). Later providers are only asked if
     those came back empty. Returns (candidates, ["provider:count", ...])."""
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     order = [p for p in provider_order() if time.monotonic() >= _benched.get(p, 0)]
-    first, rest = order[:2], order[2:]
+    first, rest = (order[:1], order[1:]) if quick else (order[:2], order[2:])
     results: dict[str, list[Candidate]] = {}
     if first:
         ex = ThreadPoolExecutor(len(first))
@@ -177,7 +177,7 @@ def search_all(query: str, n: int = 20) -> tuple[list[Candidate], list[str]]:
         for c in results.get(name, []):
             # a result whose title shares no word with the query is another query's answer
             # (ddg occasionally mixes up concurrent searches)
-            if c.title and keys and not keys & _keys(c.title + " " + c.page):
+            if c.title and keys and len(keys & _keys(c.title + " " + c.page)) < min(2, len(keys)):
                 continue
             if c.url not in seen:
                 seen.add(c.url)

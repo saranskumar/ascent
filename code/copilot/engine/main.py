@@ -35,6 +35,7 @@ WINDOW_SECONDS = 30       # speech the LLM sees
 CHECK_EVERY = 6           # slow path: periodic check (only runs if new speech arrived)
 SETTLE = 1.0              # slow path also runs this long after a final segment arrives...
 MIN_GAP = 5.0             # ...but never more often than this (LLM rate limits)
+ALT_SEARCH_SECONDS = 3.5     # how long the extra-angle searches may take after they start
 TOPIC_COOLDOWN = 180      # don't re-suggest the same topic for this long
 RECENT_TOPICS_SHOWN = 300 # topics from the last 5 min are listed to the LLM as ALREADY SUGGESTED
 
@@ -196,14 +197,38 @@ class Engine:
 
     async def _suggest(self, need: detect.Need, sid: str, source_ids: list[str], t_start: float,
                        t0: float) -> None:
-        self.log("search_start", run=need.run, sug=sid, query=need.query, kind=need.kind)
-        cands, providers = await asyncio.to_thread(search.search_all, need.query, 20)
+        queries = [need.query, *need.alt_queries]
+        self.log("search_start", run=need.run, sug=sid, query=need.query, queries=queries, kind=need.kind)
+        async def look(i: int, q: str):
+            job = asyncio.to_thread(search.search_all, q, 20, i > 0)
+            if i == 0:
+                return await job
+            try:                  # extra angles must not hold up the main one
+                return await asyncio.wait_for(job, ALT_SEARCH_SECONDS)
+            except asyncio.TimeoutError:
+                return [], ["timeout"]
+        found = await asyncio.gather(*(look(i, q) for i, q in enumerate(queries)))
         t_s = time.monotonic()
-        self.log("search", run=need.run, sug=sid, query=need.query, providers=providers,
-                 n=len(cands), secs=round(t_s - t0, 2))
-        report: list[dict] = []
-        picked = await fetch.fetch_best(cands, need.kind, self.images_dir, sid, want=3,
-                                        seen_hashes=self.seen_hashes, try_n=14, report=report)
+        providers = [f"{i + 1}:{p}" if len(queries) > 1 else p for i, (_, ps) in enumerate(found) for p in ps]
+        self.log("search", run=need.run, sug=sid, query=need.query, queries=queries, providers=providers,
+                 n=sum(len(c) for c, _ in found), secs=round(t_s - t0, 2))
+        reports: list[list[dict]] = [[] for _ in queries]
+        got = await asyncio.gather(*(
+            fetch.fetch_best(c, need.kind, self.images_dir, f"{sid}q{i}", want=3 if i == 0 else 2,
+                             seen_hashes=self.seen_hashes, try_n=12, report=reports[i])
+            for i, (c, _) in enumerate(found)))
+        # one image per query first (varied angles), then top up from whatever is left
+        picked, hashes = [], list(self.seen_hashes)
+        for rank in range(3):
+            for g in got:
+                if rank < len(g) and len(picked) < 3 and not any(fetch.similar(g[rank].ahash, h) for h in hashes):
+                    picked.append(g[rank])
+                    hashes.append(g[rank].ahash)
+        report = [{**r, "q": i} for i, rep in enumerate(reports) for r in rep]
+        picked_urls = {p.cand.url for p in picked}
+        for r in report:
+            if r["status"].startswith("picked") and r["url"] not in picked_urls:
+                r["status"] = "spare (enough already)"
         t_search = time.monotonic() - t0
         self.log("fetch", run=need.run, sug=sid, secs=round(time.monotonic() - t_s, 2),
                  picked=len(picked), candidates=report)

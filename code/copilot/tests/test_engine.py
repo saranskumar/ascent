@@ -83,7 +83,7 @@ class FakeWorld:
         self.answers = answers           # substring of the newest line -> topic
         self.published = []
         monkeypatch.setattr(detect, "ask", self.ask)
-        monkeypatch.setattr(search, "search_all", lambda q, n=20: ([Candidate(url=f"u/{q}")], ["fake:1"]))
+        monkeypatch.setattr(search, "search_all", lambda q, n=20, quick=False: ([Candidate(url=f"u/{q}")], ["fake:1"]))
         monkeypatch.setattr(fetch, "fetch_best", self.fetch_best)
         monkeypatch.setattr(em, "SETTLE", 0.01)
         monkeypatch.setattr(em, "MIN_GAP", 0.0)

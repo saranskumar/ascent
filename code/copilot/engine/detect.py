@@ -10,7 +10,7 @@ If the LLM is unreachable on the fast path, the noun phrase after the cue is use
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from contracts.messages import Segment
 
@@ -47,6 +47,7 @@ Answer with one JSON object:
 {"visual_needed": true|false,
  "topic": "2-5 words, what the picture shows, Title Case",
  "query": "web image search query, 3-8 words, specific, no filler like 'let me' or 'this'. End with exactly one of: 'diagram' for drawn ideas (use 'architecture diagram' for how a system is built, 'sequence diagram' only if the speaker walks through messages step by step), 'chart' for graphs, 'photo' for physical things (even technical parts like wheels or gearboxes, unless the speaker explains how they work inside)",
+ "alt_queries": ["two more search queries for the SAME topic from clearly different angles, so the host gets varied options instead of 20 near-identical shots: change the viewpoint, setting, or representation (e.g. close-up vs in use vs labelled diagram, or photo vs infographic), never just rephrase. Same format as query."],
  "kind": "diagram" | "photo" | "chart" | "illustration",
  "reason": "the short quote (max 12 words) from the transcript that triggered it",
  "confidence": 0.0-1.0}
@@ -63,6 +64,7 @@ class Need:
     confidence: float
     path: str          # "fast" | "slow" | "heuristic"
     backend: str = ""
+    alt_queries: list = field(default_factory=list)   # other angles on the same topic (searched too)
     run: str = ""      # engine's id for this detection, so dev tools can follow it through search
 
 
@@ -99,7 +101,10 @@ def ask(window: list[Segment], new_ids: set[str], recent: list[str], cue: str | 
     kind = str(d.get("kind") or "illustration").lower()
     if kind not in ("diagram", "photo", "chart", "illustration"):
         kind = "illustration"
-    return Need(topic=topic[:60], query=query[:120], kind=kind,
+    alts = d.get("alt_queries") or []
+    alts = [str(a).strip()[:120] for a in alts if isinstance(a, str) and a.strip()
+            and a.strip().lower() != query.lower()][:2]
+    return Need(topic=topic[:60], query=query[:120], kind=kind, alt_queries=alts,
                 reason=str(d.get("reason") or "").strip()[:120],
                 priority="elevated" if cue else "ambient", confidence=conf,
                 path="fast" if cue else "slow", backend=backend)
