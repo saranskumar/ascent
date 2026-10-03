@@ -90,6 +90,17 @@ def test_window_pages_and_flows(app, tmp_path):
     mp.select_run(run, "transcript")
     pump(app, 0.8)
     assert "Q3 budget" in mp.transcript.toPlainText()
+    # Screens tab: rows are selectable, the preview follows, Enter/double-click opens the viewer
+    mp.select_run(run, "screens")
+    pump(app, 0.5)
+    assert mp.screens.count() == 2
+    mp.screens.setCurrentRow(1)
+    pump(app)
+    assert mp.screen_img._pix is not None and "Q3 budget" in mp.screen_text.toPlainText()
+    opened = []
+    mp.view_screen = lambda: opened.append(mp.screens.currentRow())
+    mp.screens.itemActivated.emit(mp.screens.item(1))
+    assert opened == [1]
     from ui.image_viewer import ImageViewer
     v = ImageViewer(mp, ctl.store.run_dir(run), ctl.store.screenshots(run)["screenshots"])
     v.go(1)

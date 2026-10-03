@@ -75,7 +75,9 @@ def backup_summary(client: MeetilyClient, meeting_id: str, backup_dir: Path) -> 
     return f
 
 
-DEFAULT_TITLE = re.compile(r"^\s*(new meeting|untitled)\b", re.I)
+# Meetily's own names for a meeting it hasn't titled yet ("New Meeting 4:36 PM",
+# "[Recording] 2026-10-03 05:46").
+DEFAULT_TITLE = re.compile(r"^\s*(new meeting|untitled|\[recording\])", re.I)
 # Titles that only echo the prompt template. Never used to rename a meeting, and a meeting that
 # already got one (from an earlier version of this app) may be renamed to a real title.
 PLACEHOLDER_TITLE = re.compile(
